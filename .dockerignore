@@ -1,0 +1,15 @@
+# keep build contexts small: no data, envs, caches or VCS metadata
+.git
+data
+reports
+**/.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+frontend/dist
+frontend/coverage
+docs/screenshots
+*.pkl
+.env

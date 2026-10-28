@@ -15,7 +15,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WAFERMAP_", env_file=".env", extra="ignore")
 
-    database_url: str = Field(default=f"sqlite:///{(REPO_ROOT / 'data' / 'wafermap.db').as_posix()}")
+    database_url: str = Field(
+        default=f"sqlite:///{(REPO_ROOT / 'data' / 'wafermap.db').as_posix()}"
+    )
     data_dir: Path = REPO_ROOT / "data"
     model_dir: Path = REPO_ROOT / "models"
     reports_dir: Path = REPO_ROOT / "reports"

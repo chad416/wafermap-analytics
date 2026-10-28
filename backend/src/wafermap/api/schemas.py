@@ -6,7 +6,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-PatternName = Literal["Center", "Donut", "Edge-Loc", "Edge-Ring", "Loc", "Near-full", "Random", "Scratch", "none"]
+PatternName = Literal[
+    "Center", "Donut", "Edge-Loc", "Edge-Ring", "Loc", "Near-full", "Random", "Scratch", "none"
+]
 ModelName = Literal["cnn", "baseline"]
 LabelSource = Literal["true", "predicted"]
 
@@ -41,7 +43,9 @@ class WaferSummary(BaseModel):
     true_label: str | None
     split: str | None
     source: str
-    prediction: PredictionOut | None = Field(None, description="Stored prediction of the default model")
+    prediction: PredictionOut | None = Field(
+        None, description="Stored prediction of the default model"
+    )
 
 
 class WaferDetail(WaferSummary):
@@ -61,7 +65,9 @@ class LotOut(BaseModel):
     source: str
     wafer_count: int
     mean_yield: float | None
-    pattern_counts: dict[str, int] = Field(description="Wafers per pattern (source/model as requested)")
+    pattern_counts: dict[str, int] = Field(
+        description="Wafers per pattern (source/model as requested)"
+    )
     top_defect: str | None = Field(description="Most frequent non-'none' pattern in the lot")
 
 

@@ -56,7 +56,9 @@ def test_splits_are_lot_grouped_and_stratified() -> None:
     assert shares["train"] == pytest.approx(0.70, abs=0.03)
     assert shares["test"] == pytest.approx(0.15, abs=0.03)
     for c in ("a", "b"):  # each class keeps roughly its share in test
-        assert np.mean(labels[split == "test"] == c) == pytest.approx(np.mean(labels == c), abs=0.03)
+        assert np.mean(labels[split == "test"] == c) == pytest.approx(
+            np.mean(labels == c), abs=0.03
+        )
 
 
 def test_features_shape_and_determinism() -> None:

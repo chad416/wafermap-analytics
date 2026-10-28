@@ -18,7 +18,7 @@ from wafermap.constants import BIN_FAIL, BIN_NO_DIE, BIN_PASS, CANONICAL_SIZE, M
 WaferArray = npt.NDArray[np.uint8]
 
 
-class InvalidWaferMap(ValueError):
+class InvalidWaferMapError(ValueError):
     """Raised when an input cannot be interpreted as a wafer map."""
 
 
@@ -34,24 +34,24 @@ class WaferStats:
 
 
 def validate(arr: npt.ArrayLike, *, min_dies: int = MIN_DIES) -> WaferArray:
-    """Return ``arr`` as a validated ``uint8`` wafer map or raise :class:`InvalidWaferMap`."""
+    """Return ``arr`` as a validated ``uint8`` wafer map or raise :class:`InvalidWaferMapError`."""
     a = np.asarray(arr)
     if a.ndim != 2:
-        raise InvalidWaferMap(f"wafer map must be 2-D, got {a.ndim}-D")
+        raise InvalidWaferMapError(f"wafer map must be 2-D, got {a.ndim}-D")
     if a.shape[0] < 3 or a.shape[1] < 3:
-        raise InvalidWaferMap(f"wafer map too small: {a.shape}")
+        raise InvalidWaferMapError(f"wafer map too small: {a.shape}")
     if a.shape[0] > MAX_SIDE or a.shape[1] > MAX_SIDE:
-        raise InvalidWaferMap(f"wafer map too large: {a.shape} (max side {MAX_SIDE})")
+        raise InvalidWaferMapError(f"wafer map too large: {a.shape} (max side {MAX_SIDE})")
     if not np.issubdtype(a.dtype, np.number):
-        raise InvalidWaferMap("wafer map must be numeric")
+        raise InvalidWaferMapError("wafer map must be numeric")
     if np.issubdtype(a.dtype, np.floating) and not np.all(np.isfinite(a)):
-        raise InvalidWaferMap("wafer map contains NaN/inf")
+        raise InvalidWaferMapError("wafer map contains NaN/inf")
     if not np.all(np.isin(a, (BIN_NO_DIE, BIN_PASS, BIN_FAIL))):
-        raise InvalidWaferMap("wafer map values must be 0 (no die), 1 (pass) or 2 (fail)")
+        raise InvalidWaferMapError("wafer map values must be 0 (no die), 1 (pass) or 2 (fail)")
     out = a.astype(np.uint8)
     n_die = int(np.count_nonzero(out))
     if n_die < min_dies:
-        raise InvalidWaferMap(f"wafer map has {n_die} dies, need at least {min_dies}")
+        raise InvalidWaferMapError(f"wafer map has {n_die} dies, need at least {min_dies}")
     return out
 
 
@@ -73,7 +73,7 @@ def encode(m: WaferArray) -> bytes:
 def decode(blob: bytes, rows: int, cols: int) -> WaferArray:
     flat = np.frombuffer(zlib.decompress(blob), dtype=np.uint8)
     if flat.size != rows * cols:
-        raise InvalidWaferMap(f"blob holds {flat.size} values, expected {rows}x{cols}")
+        raise InvalidWaferMapError(f"blob holds {flat.size} values, expected {rows}x{cols}")
     return flat.reshape(rows, cols).copy()
 
 
@@ -95,14 +95,14 @@ def parse_upload(data: bytes, filename: str) -> WaferArray:
             text = data.decode("utf-8").strip()
             rows = [r.replace(",", " ").split() for r in text.splitlines() if r.strip()]
             if len({len(r) for r in rows}) != 1:
-                raise InvalidWaferMap("rows have different lengths")
+                raise InvalidWaferMapError("rows have different lengths")
             arr = np.asarray(rows, dtype=np.int64)
         else:
-            raise InvalidWaferMap("unsupported file type; use .npy, .json, .csv or .txt")
-    except InvalidWaferMap:
+            raise InvalidWaferMapError("unsupported file type; use .npy, .json, .csv or .txt")
+    except InvalidWaferMapError:
         raise
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise InvalidWaferMap(f"could not parse {filename}: {exc}") from exc
+        raise InvalidWaferMapError(f"could not parse {filename}: {exc}") from exc
     return validate(arr)
 
 
@@ -123,18 +123,22 @@ def _area_resize(img: npt.NDArray[np.float32], size: int) -> npt.NDArray[np.floa
     ys = np.linspace(0.0, h, size + 1)
     xs = np.linspace(0.0, w, size + 1)
 
-    def interp_rows(table: npt.NDArray[np.float64], pts: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    def interp_rows(
+        table: npt.NDArray[np.float64], pts: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.float64]:
         lo = np.floor(pts).astype(int)
         lo = np.clip(lo, 0, table.shape[0] - 2)
         frac = (pts - lo)[:, None]
-        return table[lo] * (1 - frac) + table[lo + 1] * frac
+        out: npt.NDArray[np.float64] = table[lo] * (1 - frac) + table[lo + 1] * frac
+        return out
 
     # Piecewise-linear interpolation of the integral image is exact for piecewise-constant input.
     t = interp_rows(ii, ys)  # (size+1, w+1)
     t = interp_rows(t.T, xs).T  # (size+1, size+1)
     area = (h / size) * (w / size)
     cells = t[1:, 1:] - t[:-1, 1:] - t[1:, :-1] + t[:-1, :-1]
-    return (cells / area).astype(np.float32)
+    resized: npt.NDArray[np.float32] = (cells / area).astype(np.float32)
+    return resized
 
 
 def canonical(m: WaferArray, size: int = CANONICAL_SIZE) -> npt.NDArray[np.float32]:

@@ -8,7 +8,7 @@ import pytest
 
 from synthetic import center, edge_ring
 from wafermap import wafer
-from wafermap.wafer import InvalidWaferMap
+from wafermap.wafer import InvalidWaferMapError
 
 
 def test_encode_decode_roundtrip() -> None:
@@ -18,7 +18,7 @@ def test_encode_decode_roundtrip() -> None:
 
 def test_decode_rejects_wrong_shape() -> None:
     m = center()
-    with pytest.raises(InvalidWaferMap):
+    with pytest.raises(InvalidWaferMapError):
         wafer.decode(wafer.encode(m), m.shape[0] + 1, m.shape[1])
 
 
@@ -41,7 +41,7 @@ def test_stats_and_yield() -> None:
     ],
 )
 def test_validate_rejects(arr: np.ndarray, msg: str) -> None:
-    with pytest.raises(InvalidWaferMap, match=msg):
+    with pytest.raises(InvalidWaferMapError, match=msg):
         wafer.validate(arr)
 
 
@@ -66,7 +66,9 @@ def test_parse_upload_formats() -> None:
     np.save(buf, m)
     assert np.array_equal(wafer.parse_upload(buf.getvalue(), "w.npy"), m)
     assert np.array_equal(wafer.parse_upload(json.dumps(m.tolist()).encode(), "w.json"), m)
-    assert np.array_equal(wafer.parse_upload(json.dumps({"grid": m.tolist()}).encode(), "w.JSON"), m)
+    assert np.array_equal(
+        wafer.parse_upload(json.dumps({"grid": m.tolist()}).encode(), "w.JSON"), m
+    )
     csv = "\n".join(",".join(map(str, r)) for r in m).encode()
     assert np.array_equal(wafer.parse_upload(csv, "w.csv"), m)
     txt = "\n".join(" ".join(map(str, r)) for r in m).encode()
@@ -76,7 +78,7 @@ def test_parse_upload_formats() -> None:
 def test_parse_upload_rejects_pickled_npy() -> None:
     buf = io.BytesIO()
     np.save(buf, np.array([{"a": 1}], dtype=object), allow_pickle=True)
-    with pytest.raises(InvalidWaferMap):
+    with pytest.raises(InvalidWaferMapError):
         wafer.parse_upload(buf.getvalue(), "evil.npy")
 
 
@@ -85,5 +87,5 @@ def test_parse_upload_rejects_pickled_npy() -> None:
     [(b"1,2\n1", "w.csv"), (b"not json", "w.json"), (b"\x00\x01", "w.bin"), (b"a,b\nc,d", "w.csv")],
 )
 def test_parse_upload_errors(payload: bytes, name: str) -> None:
-    with pytest.raises(InvalidWaferMap):
+    with pytest.raises(InvalidWaferMapError):
         wafer.parse_upload(payload, name)

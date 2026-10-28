@@ -39,14 +39,16 @@ def ingest(
             if if_empty:
                 log.info("database already holds %d wafers - skipping ingest", existing)
                 return 0
-            raise RuntimeError(f"database already holds {existing} wafers; ingest expects an empty "
-                               "database (use --if-empty to make it a no-op)")
+            raise RuntimeError(
+                f"database already holds {existing} wafers; ingest expects an empty "
+                "database (use --if-empty to make it a no-op)"
+            )
 
     table = pq.read_table(path).sort_by([("lot_number", "ascending"), ("wafer_index", "ascending")])
     if limit_lots is not None:
         keep = pc.unique(table["lot_name"])[:limit_lots]
         table = table.filter(pc.is_in(table["lot_name"], value_set=keep))
-    n = table.num_rows
+    n = int(table.num_rows)
     log.info("ingesting %d wafers from %s", n, path)
 
     classifier = None
@@ -55,27 +57,46 @@ def ingest(
         if settings.default_model in registry.names():
             classifier = registry.get(settings.default_model)
         else:
-            log.warning("default model %s unavailable - wafers ingested without predictions",
-                        settings.default_model)
+            log.warning(
+                "default model %s unavailable - wafers ingested without predictions",
+                settings.default_model,
+            )
 
     t0 = time.perf_counter()
     with sm() as s:
-        lot_ids = _upsert_lots(s, table.column("lot_name").to_pylist(), table.column("lot_number").to_pylist())
+        lot_ids = _upsert_lots(
+            s, table.column("lot_name").to_pylist(), table.column("lot_number").to_pylist()
+        )
         for start in range(0, n, CHUNK):
             batch = table.slice(start, CHUNK).to_pydict()
             rows = _wafer_rows(batch, lot_ids)
-            ids = list(s.scalars(insert(Wafer).returning(Wafer.id, sort_by_parameter_order=True), rows))
+            ids = list(
+                s.scalars(insert(Wafer).returning(Wafer.id, sort_by_parameter_order=True), rows)
+            )
             if classifier is not None:
-                maps = [wafer.decode(b, r, c) for b, r, c in
-                        zip(batch["map_zlib"], batch["rows"], batch["cols"], strict=True)]
+                maps = [
+                    wafer.decode(b, r, c)
+                    for b, r, c in zip(batch["map_zlib"], batch["rows"], batch["cols"], strict=True)
+                ]
                 preds = top(classifier.predict_proba(maps))
-                s.execute(insert(Prediction), [
-                    {"wafer_id": wid, "model_name": classifier.name, "model_version": classifier.version,
-                     "label": label, "confidence": conf, "probabilities": probs}
-                    for wid, (label, conf, probs) in zip(ids, preds, strict=True)
-                ])
+                s.execute(
+                    insert(Prediction),
+                    [
+                        {
+                            "wafer_id": wid,
+                            "model_name": classifier.name,
+                            "model_version": classifier.version,
+                            "label": label,
+                            "confidence": conf,
+                            "probabilities": probs,
+                        }
+                        for wid, (label, conf, probs) in zip(ids, preds, strict=True)
+                    ],
+                )
             s.commit()
-            log.info("  %d / %d wafers (%.0f s)", min(start + CHUNK, n), n, time.perf_counter() - t0)
+            log.info(
+                "  %d / %d wafers (%.0f s)", min(start + CHUNK, n), n, time.perf_counter() - t0
+            )
         refresh_lot_stats(s)
         s.commit()
     log.info("ingest finished in %.1f s", time.perf_counter() - t0)
@@ -85,7 +106,9 @@ def ingest(
 def _upsert_lots(s: Any, names: list[str], numbers: list[int]) -> dict[str, int]:
     wanted = dict(zip(names, numbers, strict=True))
     have = set(s.scalars(select(Lot.name)))
-    new =[{"name": k, "lot_number": v, "source": "wm811k"} for k, v in wanted.items() if k not in have]
+    new = [
+        {"name": k, "lot_number": v, "source": "wm811k"} for k, v in wanted.items() if k not in have
+    ]
     for i in range(0, len(new), CHUNK):
         s.execute(insert(Lot), new[i : i + CHUNK])
     s.flush()

@@ -138,7 +138,9 @@ def prepare(
     table = pa.table(
         {
             "lot_name": pa.array(lot_names[idx]),
-            "lot_number": pa.array([int(s.removeprefix("lot")) for s in lot_names[idx]], pa.int32()),
+            "lot_number": pa.array(
+                [int(s.removeprefix("lot")) for s in lot_names[idx]], pa.int32()
+            ),
             "wafer_index": pa.array(wafer_idx[idx]),
             "die_size": pa.array(die_size[idx]),
             "rows": pa.array(shapes[:, 0]),
@@ -166,11 +168,14 @@ def prepare(
         rows_written=len(idx),
         created_utc=datetime.now(UTC).isoformat(timespec="seconds"),
     )
-    (processed_dir / "manifest.json").write_text(json.dumps(summary, indent=2))
+    # newline="\n": identical bytes on Windows and Linux
+    (processed_dir / "manifest.json").write_text(json.dumps(summary, indent=2) + "\n", newline="\n")
     metrics_dir = reports_dir / "metrics"
     metrics_dir.mkdir(parents=True, exist_ok=True)
     report = {k: v for k, v in summary.items() if k != "created_utc"}
-    (metrics_dir / "dataset_summary.json").write_text(json.dumps(report, indent=2) + "\n")
+    (metrics_dir / "dataset_summary.json").write_text(
+        json.dumps(report, indent=2) + "\n", newline="\n"
+    )
     plot_class_distribution(summary, reports_dir / "figures" / "class_distribution.png")
     log.info("wrote %s (%d rows)", out_path, len(idx))
     return summary
@@ -192,13 +197,13 @@ def build_summary(
         for s in ("train", "val", "test")
     }
     lots_per_split = {
-        s: int(len(set(lot_names[labelled][split[labelled] == s]))) for s in ("train", "val", "test")
+        s: len(set(lot_names[labelled][split[labelled] == s])) for s in ("train", "val", "test")
     }
     minority = min(counts.values())
     return {
         "labelled_wafers": int(labelled.sum()),
         "unlabelled_wafers_in_scope": int((in_scope & ~labelled).sum()),
-        "lots_in_scope": int(len(set(lot_names[in_scope]))),
+        "lots_in_scope": len(set(lot_names[in_scope])),
         "class_counts": {c: int(counts[c]) for c in CLASSES},
         "class_share_pct": {c: round(100 * counts[c] / len(lab), 3) for c in CLASSES},
         "imbalance_ratio_max_over_min": round(max(counts.values()) / minority, 1),
@@ -230,8 +235,13 @@ def plot_class_distribution(summary: dict[str, Any], path: Path) -> None:
         f"max/min ratio {summary['imbalance_ratio_max_over_min']:,}:1"
     )
     for b, c in zip(bars, order, strict=True):
-        ax.annotate(f"{counts[c]:,}", (b.get_x() + b.get_width() / 2, b.get_height()),
-                    ha="center", va="bottom", fontsize=8)
+        ax.annotate(
+            f"{counts[c]:,}",
+            (b.get_x() + b.get_width() / 2, b.get_height()),
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
     ax.tick_params(axis="x", rotation=30)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()

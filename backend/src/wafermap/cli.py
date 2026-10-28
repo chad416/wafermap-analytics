@@ -73,7 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     sp = sub.add_parser("prepare", help="clean + split the raw WM-811K pickle")
-    sp.add_argument("--scope", choices=["labelled-lots", "labelled", "all"], default="labelled-lots")
+    sp.add_argument(
+        "--scope", choices=["labelled-lots", "labelled", "all"], default="labelled-lots"
+    )
     sp.set_defaults(func=_cmd_prepare)
 
     sp = sub.add_parser("features", help="compute engineered features")
@@ -100,7 +102,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     args = build_parser().parse_args(argv)
     args.func(args)
 

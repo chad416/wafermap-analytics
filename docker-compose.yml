@@ -1,0 +1,72 @@
+# One-command start:   docker compose up --build
+# UI: http://localhost:8080   API docs: http://localhost:8000/docs
+#
+# The seed service loads data/processed/wafers.parquet (produced by `make data`) into
+# PostgreSQL once; without it the stack still starts with an empty database and the
+# Classify page works on uploaded maps.
+name: wafermap
+
+x-api-env: &api-env
+  WAFERMAP_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-wafermap}:${POSTGRES_PASSWORD:-wafermap}@db:5432/${POSTGRES_DB:-wafermap}
+  WAFERMAP_DEFAULT_MODEL: ${WAFERMAP_DEFAULT_MODEL:-cnn}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wafermap}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wafermap}
+      POSTGRES_DB: ${POSTGRES_DB:-wafermap}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: wafermap-api:local
+    environment: *api-env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  seed:
+    image: wafermap-api:local
+    volumes:
+      - ./data/processed:/app/data/processed:ro
+    # Waits for the API (which applies migrations), then ingests once. --if-empty makes
+    # restarts a no-op; SEED_LIMIT_LOTS gives a faster partial demo.
+    command: >
+      sh -c 'if [ -f /app/data/processed/wafers.parquet ]; then
+               wafermap ingest --if-empty $${SEED_LIMIT_LOTS:+--limit-lots $$SEED_LIMIT_LOTS};
+             else
+               echo "data/processed/wafers.parquet not found - skipping seed (run: make data)";
+             fi'
+    environment:
+      <<: *api-env
+      SEED_LIMIT_LOTS: ${SEED_LIMIT_LOTS:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: wafermap-web:local
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:

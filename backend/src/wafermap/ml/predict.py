@@ -50,7 +50,9 @@ class CnnOnnxClassifier:
 
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = 4
-        return ort.InferenceSession(str(self.path), sess_options=opts, providers=["CPUExecutionProvider"])
+        return ort.InferenceSession(
+            str(self.path), sess_options=opts, providers=["CPUExecutionProvider"]
+        )
 
     def predict_proba(self, maps: list[WaferArray]) -> FloatArray:
         x = np.stack([wafer.canonical_u8(m) for m in maps]).astype(np.float32) / 255.0
@@ -86,8 +88,10 @@ class ModelRegistry:
     def __init__(self, model_dir: Path) -> None:
         self.model_dir = model_dir
         self._models: dict[str, Classifier] = {}
-        for name, weights, cls in (("cnn", "model.onnx", CnnOnnxClassifier),
-                                   ("baseline", "model.txt", LightGBMClassifier)):
+        for name, weights, cls in (
+            ("cnn", "model.onnx", CnnOnnxClassifier),
+            ("baseline", "model.txt", LightGBMClassifier),
+        ):
             meta_path, w_path = model_dir / name / "meta.json", model_dir / name / weights
             if meta_path.exists() and w_path.exists():
                 meta = json.loads(meta_path.read_text())
@@ -112,5 +116,11 @@ def top(proba: FloatArray) -> list[tuple[str, float, dict[str, float]]]:
     out = []
     for row in proba:
         i = int(row.argmax())
-        out.append((CLASSES[i], float(row[i]), {c: round(float(p), 5) for c, p in zip(CLASSES, row, strict=True)}))
+        out.append(
+            (
+                CLASSES[i],
+                float(row[i]),
+                {c: round(float(p), 5) for c, p in zip(CLASSES, row, strict=True)},
+            )
+        )
     return out

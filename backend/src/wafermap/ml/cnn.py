@@ -30,9 +30,12 @@ class WaferCNN(nn.Module):
     def __init__(self, n_classes: int = len(CLASSES), dropout: float = 0.3) -> None:
         super().__init__()
         self.features = nn.Sequential(
-            _block(2, 16), nn.MaxPool2d(2),
-            _block(16, 32), nn.MaxPool2d(2),
-            _block(32, 64), nn.MaxPool2d(2),
+            _block(2, 16),
+            nn.MaxPool2d(2),
+            _block(16, 32),
+            nn.MaxPool2d(2),
+            _block(32, 64),
+            nn.MaxPool2d(2),
             _block(64, 128),
         )
         self.head = nn.Sequential(

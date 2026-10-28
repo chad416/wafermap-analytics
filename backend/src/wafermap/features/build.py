@@ -25,6 +25,16 @@ def _chunk(blobs: list[bytes], rows: list[int], cols: list[int]) -> npt.NDArray[
     return out
 
 
+def canonical_chunk(blobs: list[bytes], rows: list[int], cols: list[int]) -> npt.NDArray[np.uint8]:
+    """uint8 canonical tensors for a chunk of encoded maps (joblib worker; no torch import)."""
+    return np.stack(
+        [
+            wafer.canonical_u8(wafer.decode(b, r, c))
+            for b, r, c in zip(blobs, rows, cols, strict=True)
+        ]
+    )
+
+
 def load_labelled(processed_dir: Path) -> dict[str, np.ndarray]:
     """Load the labelled rows of the processed parquet as numpy arrays."""
     t = pq.read_table(

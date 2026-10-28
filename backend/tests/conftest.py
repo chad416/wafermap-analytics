@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -18,13 +19,17 @@ from wafermap.db.repository import refresh_lot_stats
 from wafermap.db.session import get_sessionmaker
 
 MODEL_DIR = REPO_ROOT / "models"
-HAVE_MODELS = (MODEL_DIR / "cnn" / "model.onnx").exists() and (MODEL_DIR / "baseline" / "model.txt").exists()
+HAVE_MODELS = (MODEL_DIR / "cnn" / "model.onnx").exists() and (
+    MODEL_DIR / "baseline" / "model.txt"
+).exists()
 
 
 @pytest.fixture(scope="session")
 def settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
     db = tmp_path_factory.mktemp("db") / "test.db"
-    s = Settings(database_url=f"sqlite:///{db.as_posix()}", model_dir=MODEL_DIR, data_dir=Path(db.parent))
+    # CI sets WAFERMAP_TEST_DATABASE_URL to an empty PostgreSQL database; locally SQLite is used.
+    url = os.environ.get("WAFERMAP_TEST_DATABASE_URL", f"sqlite:///{db.as_posix()}")
+    s = Settings(database_url=url, model_dir=MODEL_DIR, data_dir=Path(db.parent))
     upgrade(s.database_url)  # the test DB is built by the real migrations
     _seed(s)
     return s
@@ -41,13 +46,29 @@ def _seed(s: Settings) -> None:
             for idx, (label, make) in enumerate(makers.items(), start=1):
                 m = make()
                 st = wafer.stats(m)
-                w = Wafer(lot_id=lot.id, wafer_index=idx, rows=m.shape[0], cols=m.shape[1], n_die=st.n_die,
-                          n_pass=st.n_pass, n_fail=st.n_fail, yield_pct=round(st.yield_pct, 3),
-                          map_zlib=wafer.encode(m), true_label=label if lot_no != 3 else None,
-                          split="test" if lot_no != 3 else None)
+                w = Wafer(
+                    lot_id=lot.id,
+                    wafer_index=idx,
+                    rows=m.shape[0],
+                    cols=m.shape[1],
+                    n_die=st.n_die,
+                    n_pass=st.n_pass,
+                    n_fail=st.n_fail,
+                    yield_pct=round(st.yield_pct, 3),
+                    map_zlib=wafer.encode(m),
+                    true_label=label if lot_no != 3 else None,
+                    split="test" if lot_no != 3 else None,
+                )
                 pred = "none" if label == "Random" else label
-                w.predictions = [Prediction(model_name="cnn", model_version="test", label=pred, confidence=0.9,
-                                            probabilities={pred: 0.9})]
+                w.predictions = [
+                    Prediction(
+                        model_name="cnn",
+                        model_version="test",
+                        label=pred,
+                        confidence=0.9,
+                        probabilities={pred: 0.9},
+                    )
+                ]
                 session.add(w)
         session.flush()
         refresh_lot_stats(session)

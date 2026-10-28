@@ -44,13 +44,20 @@ BASE_PARAMS: dict[str, Any] = {
 }
 
 
+def _predict(booster: lgb.Booster, x: np.ndarray, num_iteration: int | None = None) -> np.ndarray:
+    return np.asarray(booster.predict(x, num_iteration=num_iteration))
+
+
 def class_weights(y: np.ndarray, alpha: float) -> np.ndarray:
     counts = np.bincount(y, minlength=len(CLASSES)).astype(np.float64)
     w = (counts.max() / np.maximum(counts, 1)) ** alpha
-    return w[y]
+    per_sample: np.ndarray = w[y]
+    return per_sample
 
 
-def train_baseline(processed_dir: Path, model_dir: Path, reports_dir: Path, seed: int = 42) -> dict[str, Any]:
+def train_baseline(
+    processed_dir: Path, model_dir: Path, reports_dir: Path, seed: int = 42
+) -> dict[str, Any]:
     d = np.load(processed_dir / "features.npz", allow_pickle=False)
     x, y, split = d["X"], d["y"], d["split"]
     names = d["feature_names"].tolist()
@@ -66,13 +73,21 @@ def train_baseline(processed_dir: Path, model_dir: Path, reports_dir: Path, seed
         dval = lgb.Dataset(x[va], y[va], weight=class_weights(y[va], alpha), reference=dtrain)
         t0 = time.perf_counter()
         booster = lgb.train(
-            params, dtrain, num_boost_round=3000, valid_sets=[dval],
+            params,
+            dtrain,
+            num_boost_round=3000,
+            valid_sets=[dval],
             callbacks=[lgb.early_stopping(100, verbose=False)],
         )
-        pred = booster.predict(x[va], num_iteration=booster.best_iteration).argmax(axis=1)
+        pred = _predict(booster, x[va], num_iteration=booster.best_iteration).argmax(axis=1)
         score = macro_f1(y[va], pred)
-        trial = {"alpha": alpha, "num_leaves": leaves, "best_iteration": booster.best_iteration,
-                 "val_macro_f1": round(score, 4), "seconds": round(time.perf_counter() - t0, 1)}
+        trial = {
+            "alpha": alpha,
+            "num_leaves": leaves,
+            "best_iteration": booster.best_iteration,
+            "val_macro_f1": round(score, 4),
+            "seconds": round(time.perf_counter() - t0, 1),
+        }
         log.info("trial %s", trial)
         trials.append(trial)
         if best is None or score > best[0]:
@@ -80,16 +95,21 @@ def train_baseline(processed_dir: Path, model_dir: Path, reports_dir: Path, seed
     assert best is not None
     _, booster, chosen = best
 
-    val_metrics = evaluate(y[va], booster.predict(x[va], num_iteration=booster.best_iteration).argmax(1))
+    val_metrics = evaluate(
+        y[va], _predict(booster, x[va], num_iteration=booster.best_iteration).argmax(1)
+    )
     # --- the single, final look at the test split ---------------------------------------------
-    test_pred = booster.predict(x[te], num_iteration=booster.best_iteration).argmax(1)
+    test_pred = _predict(booster, x[te], num_iteration=booster.best_iteration).argmax(1)
     test_metrics = evaluate(y[te], test_pred, groups=lots[te])
-    log.info("val macro-F1 %.4f | test macro-F1 %.4f", val_metrics["macro_f1"], test_metrics["macro_f1"])
+    log.info(
+        "val macro-F1 %.4f | test macro-F1 %.4f", val_metrics["macro_f1"], test_metrics["macro_f1"]
+    )
 
     out_dir = model_dir / "baseline"
     out_dir.mkdir(parents=True, exist_ok=True)
     model_path = out_dir / "model.txt"
-    booster.save_model(model_path, num_iteration=booster.best_iteration)
+    # model_to_string + explicit LF: save_model would write CRLF on Windows, changing the hash
+    model_path.write_bytes(booster.model_to_string(num_iteration=booster.best_iteration).encode())
     version = hashlib.sha256(model_path.read_bytes()).hexdigest()[:12]
     importance = dict(zip(names, booster.feature_importance("gain").round(1).tolist(), strict=True))
     meta = {
@@ -103,15 +123,24 @@ def train_baseline(processed_dir: Path, model_dir: Path, reports_dir: Path, seed
         "val_macro_f1": val_metrics["macro_f1"],
         "test_macro_f1": test_metrics["macro_f1"],
     }
-    (out_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
+    (out_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", newline="\n")
 
     metrics_dir = reports_dir / "metrics"
     metrics_dir.mkdir(parents=True, exist_ok=True)
-    report = {"model": "baseline", "version": version, "selected": chosen, "trials": trials,
-              "val": val_metrics, "test": test_metrics,
-              "top_features_by_gain": dict(sorted(importance.items(), key=lambda kv: -kv[1])[:15])}
-    (metrics_dir / "baseline.json").write_text(json.dumps(report, indent=2) + "\n")
-    plot_confusion(test_metrics["confusion_matrix"], reports_dir / "figures" / "confusion_baseline.png",
-                   f"LightGBM baseline - test split (n={test_metrics['n']:,}), "
-                   f"macro-F1 {test_metrics['macro_f1']:.3f}")
+    report = {
+        "model": "baseline",
+        "version": version,
+        "selected": chosen,
+        "trials": trials,
+        "val": val_metrics,
+        "test": test_metrics,
+        "top_features_by_gain": dict(sorted(importance.items(), key=lambda kv: -kv[1])[:15]),
+    }
+    (metrics_dir / "baseline.json").write_text(json.dumps(report, indent=2) + "\n", newline="\n")
+    plot_confusion(
+        test_metrics["confusion_matrix"],
+        reports_dir / "figures" / "confusion_baseline.png",
+        f"LightGBM baseline - test split (n={test_metrics['n']:,}), "
+        f"macro-F1 {test_metrics['macro_f1']:.3f}",
+    )
     return report

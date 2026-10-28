@@ -22,7 +22,10 @@ def f1_from_confusion(cm: IntArray) -> npt.NDArray[np.float64]:
     precision = np.divide(tp, cm.sum(axis=0), out=np.zeros_like(tp), where=cm.sum(axis=0) > 0)
     recall = np.divide(tp, cm.sum(axis=1), out=np.zeros_like(tp), where=cm.sum(axis=1) > 0)
     denom = precision + recall
-    return np.divide(2 * precision * recall, denom, out=np.zeros_like(tp), where=denom > 0)
+    f1: npt.NDArray[np.float64] = np.divide(
+        2 * precision * recall, denom, out=np.zeros_like(tp), where=denom > 0
+    )
+    return f1
 
 
 def macro_f1(y_true: IntArray, y_pred: IntArray) -> float:
@@ -70,7 +73,7 @@ def evaluate(
         for i, c in enumerate(CLASSES)
     }
     out: dict[str, Any] = {
-        "n": int(len(y_true)),
+        "n": len(y_true),
         "macro_f1": round(float(f1.mean()), 4),
         "macro_f1_defect_classes": round(float(f1[:-1].mean()), 4),  # excludes 'none'
         "weighted_f1": round(float((f1 * support).sum() / support.sum()), 4),
@@ -104,8 +107,15 @@ def plot_confusion(cm: list[list[int]], path: Path, title: str) -> None:
     for i in range(len(CLASSES)):
         for j in range(len(CLASSES)):
             if a[i, j]:
-                ax.text(j, i, f"{norm[i, j]:.2f}\n{int(a[i, j])}", ha="center", va="center",
-                        fontsize=6.5, color="white" if norm[i, j] > 0.55 else "#1f2937")
+                ax.text(
+                    j,
+                    i,
+                    f"{norm[i, j]:.2f}\n{int(a[i, j])}",
+                    ha="center",
+                    va="center",
+                    fontsize=6.5,
+                    color="white" if norm[i, j] > 0.55 else "#1f2937",
+                )
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="row-normalised (recall)")
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)

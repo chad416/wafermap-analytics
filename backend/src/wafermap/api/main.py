@@ -38,11 +38,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log.info("models loaded: %s", app.state.registry.names())
         yield
 
-    app = FastAPI(title="Wafer-map Defect Analytics API", version=__version__, description=DESCRIPTION,
-                  lifespan=lifespan)
+    app = FastAPI(
+        title="Wafer-map Defect Analytics API",
+        version=__version__,
+        description=DESCRIPTION,
+        lifespan=lifespan,
+    )
     app.add_middleware(GZipMiddleware, minimum_size=1024)
-    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["GET", "POST"],
-                       allow_headers=["*"])
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
 
     api = APIRouter(prefix="/api/v1")
 
@@ -51,9 +59,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             session.execute(text("SELECT 1"))
             db_ok = True
-        except Exception:  # noqa: BLE001 - report, don't crash the probe
+        except Exception:
             db_ok = False
-        return Health(status="ok", database=db_ok, models=app.state.registry.names(), version=__version__)
+        return Health(
+            status="ok", database=db_ok, models=app.state.registry.names(), version=__version__
+        )
 
     for r in (lots.router, wafers.router, stats.router, predict.router):
         api.include_router(r)

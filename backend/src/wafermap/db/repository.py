@@ -36,8 +36,13 @@ def _pattern_filter(label: str, source: LabelSource, model: str) -> Any:
     """SQL condition on ``Wafer`` matching a true or predicted pattern label."""
     if source == "true":
         return Wafer.true_label == label
-    return exists().where(and_(Prediction.wafer_id == Wafer.id, Prediction.model_name == model,
-                               Prediction.label == label))
+    return exists().where(
+        and_(
+            Prediction.wafer_id == Wafer.id,
+            Prediction.model_name == model,
+            Prediction.label == label,
+        )
+    )
 
 
 def list_lots(
@@ -62,10 +67,16 @@ def list_lots(
     if max_yield is not None:
         stmt = stmt.where(Lot.mean_yield <= max_yield)
     if pattern:
-        stmt = stmt.where(exists().where(and_(Wafer.lot_id == Lot.id, _pattern_filter(pattern, source, model))))
+        stmt = stmt.where(
+            exists().where(and_(Wafer.lot_id == Lot.id, _pattern_filter(pattern, source, model)))
+        )
     total = s.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     col = getattr(Lot, sort)
-    stmt = stmt.order_by(col.desc() if descending else col.asc(), Lot.id).offset((page - 1) * page_size).limit(page_size)
+    stmt = (
+        stmt.order_by(col.desc() if descending else col.asc(), Lot.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     lots = list(s.scalars(stmt))
     return PageResult(items=lots, total=total)
 
@@ -76,21 +87,31 @@ def lot_pattern_counts(
     if not lot_ids:
         return {}
     if source == "true":
-        stmt = (select(Wafer.lot_id, Wafer.true_label, func.count()).where(Wafer.lot_id.in_(lot_ids),
-                Wafer.true_label.is_not(None)).group_by(Wafer.lot_id, Wafer.true_label))
+        stmt = (
+            select(Wafer.lot_id, Wafer.true_label, func.count())
+            .where(Wafer.lot_id.in_(lot_ids), Wafer.true_label.is_not(None))
+            .group_by(Wafer.lot_id, Wafer.true_label)
+        )
     else:
-        stmt = (select(Wafer.lot_id, Prediction.label, func.count()).join(Prediction, Prediction.wafer_id == Wafer.id)
-                .where(Wafer.lot_id.in_(lot_ids), Prediction.model_name == model)
-                .group_by(Wafer.lot_id, Prediction.label))
+        stmt = (
+            select(Wafer.lot_id, Prediction.label, func.count())
+            .join(Prediction, Prediction.wafer_id == Wafer.id)
+            .where(Wafer.lot_id.in_(lot_ids), Prediction.model_name == model)
+            .group_by(Wafer.lot_id, Prediction.label)
+        )
     out: dict[int, Counter[str]] = defaultdict(Counter)
     for lot_id, label, n in s.execute(stmt):
-        out[lot_id][label] = n
+        if label is not None:
+            out[lot_id][label] = n
     return out
 
 
 def get_lot(s: Session, name: str) -> Lot | None:
-    return s.scalar(select(Lot).where(Lot.name == name).options(
-        selectinload(Lot.wafers).selectinload(Wafer.predictions)))
+    return s.scalar(
+        select(Lot)
+        .where(Lot.name == name)
+        .options(selectinload(Lot.wafers).selectinload(Wafer.predictions))
+    )
 
 
 def list_wafers(
@@ -119,16 +140,25 @@ def list_wafers(
         stmt = stmt.where(Wafer.yield_pct >= min_yield)
     if max_yield is not None:
         stmt = stmt.where(Wafer.yield_pct <= max_yield)
-    total = s.scalar(select(func.count()).select_from(stmt.with_only_columns(Wafer.id).subquery())) or 0
+    total = (
+        s.scalar(select(func.count()).select_from(stmt.with_only_columns(Wafer.id).subquery())) or 0
+    )
     col = getattr(Wafer, sort)
-    stmt = (stmt.options(selectinload(Wafer.lot), selectinload(Wafer.predictions))
-            .order_by(col.desc() if descending else col.asc(), Wafer.id)
-            .offset((page - 1) * page_size).limit(page_size))
+    stmt = (
+        stmt.options(selectinload(Wafer.lot), selectinload(Wafer.predictions))
+        .order_by(col.desc() if descending else col.asc(), Wafer.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     return PageResult(items=list(s.scalars(stmt)), total=total)
 
 
 def get_wafer(s: Session, wafer_id: int, *, with_map: bool = False) -> Wafer | None:
-    stmt = select(Wafer).where(Wafer.id == wafer_id).options(selectinload(Wafer.lot), selectinload(Wafer.predictions))
+    stmt = (
+        select(Wafer)
+        .where(Wafer.id == wafer_id)
+        .options(selectinload(Wafer.lot), selectinload(Wafer.predictions))
+    )
     if with_map:
         stmt = stmt.options(undefer(Wafer.map_zlib))
     return s.scalar(stmt)
@@ -138,17 +168,35 @@ def yield_trend(
     s: Session, *, bucket_lots: int, pattern: str | None, source: LabelSource, model: str
 ) -> list[dict[str, Any]]:
     """Mean wafer yield per bucket of ``bucket_lots`` consecutive lot numbers."""
-    bucket = cast((Lot.lot_number - 1) / bucket_lots, Integer)
-    stmt = (select(bucket.label("bucket"), func.min(Lot.lot_number), func.max(Lot.lot_number),
-                   func.count(Wafer.id), func.avg(Wafer.yield_pct), func.min(Wafer.yield_pct),
-                   func.count(func.distinct(Lot.id)))
-            .join(Lot, Wafer.lot_id == Lot.id).where(Lot.source == "wm811k"))
+    # `//` is integer floor division on every backend; SQLAlchemy 2's `/` is true division and
+    # PostgreSQL would then *round* when casting back to int, shifting bucket boundaries.
+    bucket = cast((Lot.lot_number - 1) // bucket_lots, Integer)
+    stmt = (
+        select(
+            bucket.label("bucket"),
+            func.min(Lot.lot_number),
+            func.max(Lot.lot_number),
+            func.count(Wafer.id),
+            func.avg(Wafer.yield_pct),
+            func.min(Wafer.yield_pct),
+            func.count(func.distinct(Lot.id)),
+        )
+        .join(Lot, Wafer.lot_id == Lot.id)
+        .where(Lot.source == "wm811k")
+    )
     if pattern:
         stmt = stmt.where(_pattern_filter(pattern, source, model))
     stmt = stmt.group_by(bucket).order_by(bucket)
     return [
-        {"bucket": int(b), "lot_number_from": int(lo), "lot_number_to": int(hi), "wafers": int(n),
-         "lots": int(nl), "mean_yield": round(float(avg), 3), "min_yield": round(float(mn), 3)}
+        {
+            "bucket": int(b),
+            "lot_number_from": int(lo),
+            "lot_number_to": int(hi),
+            "wafers": int(n),
+            "lots": int(nl),
+            "mean_yield": round(float(avg), 3),
+            "min_yield": round(float(mn), 3),
+        }
         for b, lo, hi, n, avg, mn, nl in s.execute(stmt)
     ]
 
@@ -158,18 +206,27 @@ def pattern_distribution(
 ) -> list[dict[str, Any]]:
     if source == "true":
         label_col = Wafer.true_label
-        stmt = select(label_col, func.count(Wafer.id), func.avg(Wafer.yield_pct)).where(label_col.is_not(None))
+        stmt = select(label_col, func.count(Wafer.id), func.avg(Wafer.yield_pct)).where(
+            label_col.is_not(None)
+        )
     else:
         label_col = Prediction.label
-        stmt = (select(label_col, func.count(Wafer.id), func.avg(Wafer.yield_pct))
-                .join(Prediction, Prediction.wafer_id == Wafer.id).where(Prediction.model_name == model))
+        stmt = (
+            select(label_col, func.count(Wafer.id), func.avg(Wafer.yield_pct))
+            .join(Prediction, Prediction.wafer_id == Wafer.id)
+            .where(Prediction.model_name == model)
+        )
     if lot:
         stmt = stmt.join(Lot, Wafer.lot_id == Lot.id).where(Lot.name == lot)
     rows = {label: (int(n), float(avg)) for label, n, avg in s.execute(stmt.group_by(label_col))}
     total = sum(n for n, _ in rows.values()) or 1
     return [
-        {"pattern": c, "count": rows.get(c, (0, 0.0))[0], "share_pct": round(100 * rows.get(c, (0, 0.0))[0] / total, 3),
-         "mean_yield": round(rows[c][1], 3) if c in rows else None}
+        {
+            "pattern": c,
+            "count": rows.get(c, (0, 0.0))[0],
+            "share_pct": round(100 * rows.get(c, (0, 0.0))[0] / total, 3),
+            "mean_yield": round(rows[c][1], 3) if c in rows else None,
+        }
         for c in CLASSES
     ]
 
@@ -178,9 +235,17 @@ def summary(s: Session, model: str) -> dict[str, Any]:
     n_lots = s.scalar(select(func.count(Lot.id))) or 0
     n_wafers, mean_yield = s.execute(select(func.count(Wafer.id), func.avg(Wafer.yield_pct))).one()
     labelled = s.scalar(select(func.count(Wafer.id)).where(Wafer.true_label.is_not(None))) or 0
-    predicted = s.scalar(select(func.count(Prediction.id)).where(Prediction.model_name == model)) or 0
-    defect = s.scalar(select(func.count(Prediction.id)).where(Prediction.model_name == model,
-                                                             Prediction.label != "none")) or 0
+    predicted = (
+        s.scalar(select(func.count(Prediction.id)).where(Prediction.model_name == model)) or 0
+    )
+    defect = (
+        s.scalar(
+            select(func.count(Prediction.id)).where(
+                Prediction.model_name == model, Prediction.label != "none"
+            )
+        )
+        or 0
+    )
     uploads = s.scalar(select(func.count(Wafer.id)).where(Wafer.source == "upload")) or 0
     return {
         "lots": n_lots,

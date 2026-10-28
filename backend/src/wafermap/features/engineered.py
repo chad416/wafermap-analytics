@@ -70,7 +70,9 @@ def _polar_grid(size: int) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.floa
     return np.hypot(xx, yy), np.arctan2(yy, xx)
 
 
-def _density(fail: npt.NDArray[np.float32], die: npt.NDArray[np.float32], mask: npt.NDArray[np.bool_]) -> float:
+def _density(
+    fail: npt.NDArray[np.float32], die: npt.NDArray[np.float32], mask: npt.NDArray[np.bool_]
+) -> float:
     d = float(die[mask].sum())
     return float(fail[mask].sum()) / d if d > 1e-6 else 0.0
 
@@ -98,7 +100,9 @@ def extract(m: WaferArray) -> npt.NDArray[np.float32]:
 
     edges = np.linspace(0.0, 1.0 + 1e-9, N_RINGS + 1)
     edges[-1] = np.inf
-    feats += [_density(fail_c, die_c, (rn >= edges[i]) & (rn < edges[i + 1])) for i in range(N_RINGS)]
+    feats += [
+        _density(fail_c, die_c, (rn >= edges[i]) & (rn < edges[i + 1])) for i in range(N_RINGS)
+    ]
 
     sector = ((theta + np.pi) / (2 * np.pi) * N_SECTORS).astype(int) % N_SECTORS
     outer = rn >= OUTER_RING_R
