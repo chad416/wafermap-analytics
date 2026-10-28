@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # API / seed image. Build context = repository root (needs models/).
 #   docker build -f backend/Dockerfile -t wafermap-api .
 FROM python:3.12-slim AS runtime
