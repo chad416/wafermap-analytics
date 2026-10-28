@@ -142,3 +142,8 @@ def canonical(m: WaferArray, size: int = CANONICAL_SIZE) -> npt.NDArray[np.float
     die = (m != BIN_NO_DIE).astype(np.float32)
     fail = (m == BIN_FAIL).astype(np.float32)
     return np.stack([_area_resize(die, size), _area_resize(fail, size)]).clip(0.0, 1.0)
+
+
+def canonical_u8(m: WaferArray, size: int = CANONICAL_SIZE) -> npt.NDArray[np.uint8]:
+    """:func:`canonical` quantised to uint8 - the exact CNN input representation (x / 255)."""
+    return np.rint(canonical(m, size) * 255.0).astype(np.uint8)
