@@ -21,8 +21,8 @@ jobs:
         with:
           version: "0.11.24"
           enable-cache: true
-      - name: Install runtime + dev dependencies (no PyTorch)
-        run: uv sync --frozen
+      - name: Install runtime + training + dev dependencies (PyTorch CPU wheel)
+        run: uv sync --frozen --extra ml
       - name: Ruff lint
         run: uv run ruff check .
       - name: Ruff format

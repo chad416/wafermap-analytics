@@ -17,17 +17,17 @@ dependencies = [
     "numpy>=2.0",
     "scipy>=1.13",
     "scikit-image>=0.24",
-    "scikit-learn>=1.5",
     "lightgbm>=4.5",
-    "joblib>=1.4",
     "onnxruntime>=1.19",
+    "pyarrow>=17",  # parquet ingest (seed job)
 ]
 
 [project.optional-dependencies]
 # Offline data pipeline + training (not installed in the API image).
 ml = [
     "pandas>=2.2",
-    "pyarrow>=17",
+    "scikit-learn>=1.5",
+    "joblib>=1.4",
     "torch>=2.4",
     "onnx>=1.16",
     "onnxscript>=0.1",

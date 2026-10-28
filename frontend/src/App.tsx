@@ -1,9 +1,19 @@
+import { lazy, Suspense } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
-import { ClassifyPage } from "./pages/ClassifyPage";
-import { Dashboard } from "./pages/Dashboard";
-import { LotDetailPage } from "./pages/LotDetailPage";
-import { LotsPage } from "./pages/LotsPage";
-import { WaferDetailPage } from "./pages/WaferDetailPage";
+import { Loading } from "./components/common";
+
+// Route-level code splitting: recharts (the bulk of the bundle) only loads with the overview.
+const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })));
+const LotsPage = lazy(() => import("./pages/LotsPage").then((m) => ({ default: m.LotsPage })));
+const LotDetailPage = lazy(() =>
+  import("./pages/LotDetailPage").then((m) => ({ default: m.LotDetailPage })),
+);
+const WaferDetailPage = lazy(() =>
+  import("./pages/WaferDetailPage").then((m) => ({ default: m.WaferDetailPage })),
+);
+const ClassifyPage = lazy(() =>
+  import("./pages/ClassifyPage").then((m) => ({ default: m.ClassifyPage })),
+);
 
 export function App() {
   return (
@@ -25,14 +35,16 @@ export function App() {
         </nav>
       </header>
       <main>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/lots" element={<LotsPage />} />
-          <Route path="/lots/:lotName" element={<LotDetailPage />} />
-          <Route path="/wafers/:waferId" element={<WaferDetailPage />} />
-          <Route path="/classify" element={<ClassifyPage />} />
-          <Route path="*" element={<p>Page not found.</p>} />
-        </Routes>
+        <Suspense fallback={<Loading />}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/lots" element={<LotsPage />} />
+            <Route path="/lots/:lotName" element={<LotDetailPage />} />
+            <Route path="/wafers/:waferId" element={<WaferDetailPage />} />
+            <Route path="/classify" element={<ClassifyPage />} />
+            <Route path="*" element={<p>Page not found.</p>} />
+          </Routes>
+        </Suspense>
       </main>
       <footer className="footer">
         Data: WM-811K (Wu, Jang &amp; Chen, IEEE TSM 2015). Portfolio project, not affiliated with

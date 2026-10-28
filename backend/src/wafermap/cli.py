@@ -6,6 +6,7 @@ Commands mirror the pipeline stages so each is reproducible on its own::
     wafermap features           # engineered features for the labelled subset
     wafermap train-baseline     # LightGBM on engineered features
     wafermap train-cnn          # small CNN, exported to ONNX
+    wafermap report             # comparison tables, latency benchmark, figures
     wafermap migrate            # alembic upgrade head
     wafermap ingest             # processed parquet -> database (+ batch predictions)
 """
@@ -55,6 +56,13 @@ def _cmd_train_cnn(args: argparse.Namespace) -> None:
     )
 
 
+def _cmd_report(args: argparse.Namespace) -> None:
+    from wafermap.ml.report import build_report
+
+    s = get_settings()
+    build_report(s.processed_dir, s.model_dir, s.reports_dir)
+
+
 def _cmd_migrate(args: argparse.Namespace) -> None:
     from wafermap.db.migrate import upgrade
 
@@ -89,6 +97,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--epochs", type=int, default=30)
     sp.add_argument("--threads", type=int, default=0, help="torch CPU threads (0 = default)")
     sp.set_defaults(func=_cmd_train_cnn)
+
+    sp = sub.add_parser("report", help="write summary tables, latency and figures")
+    sp.set_defaults(func=_cmd_report)
 
     sp = sub.add_parser("migrate", help="apply database migrations")
     sp.set_defaults(func=_cmd_migrate)

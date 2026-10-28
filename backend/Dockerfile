@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # API / seed image. Build context = repository root (needs models/).
 #   docker build -f backend/Dockerfile -t wafermap-api .
 FROM python:3.12-slim AS runtime
@@ -20,10 +21,11 @@ WORKDIR /app/backend
 # Dependency layer first (cached unless the lock file changes). Runtime deps only:
 # no dev tools and no "ml" extra, so no PyTorch - the CNN is served through ONNX Runtime.
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# BuildKit cache mount keeps uv's download cache out of the image layers.
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project
 
 COPY backend/ ./
-RUN uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
 COPY models/ /app/models/
 
