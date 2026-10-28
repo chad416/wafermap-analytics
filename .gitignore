@@ -1,0 +1,36 @@
+# Dataset (never committed - see scripts/fetch_dataset.py and DATA_LICENSE.md)
+data/raw/
+data/processed/
+data/*.db
+data/*.db-journal
+*.pkl
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Training scratch
+models/**/checkpoints/
+runs/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/coverage/
+*.tsbuildinfo
+
+# Env / editor / OS
+.env
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

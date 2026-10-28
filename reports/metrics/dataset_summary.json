@@ -1,0 +1,81 @@
+{
+  "labelled_wafers": 172946,
+  "unlabelled_wafers_in_scope": 71895,
+  "lots_in_scope": 10762,
+  "class_counts": {
+    "Center": 4294,
+    "Donut": 555,
+    "Edge-Loc": 5189,
+    "Edge-Ring": 9680,
+    "Loc": 3593,
+    "Near-full": 149,
+    "Random": 866,
+    "Scratch": 1193,
+    "none": 147427
+  },
+  "class_share_pct": {
+    "Center": 2.483,
+    "Donut": 0.321,
+    "Edge-Loc": 3.0,
+    "Edge-Ring": 5.597,
+    "Loc": 2.078,
+    "Near-full": 0.086,
+    "Random": 0.501,
+    "Scratch": 0.69,
+    "none": 85.245
+  },
+  "imbalance_ratio_max_over_min": 989.4,
+  "imbalance_ratio_excluding_none": 65.0,
+  "split_counts": {
+    "train": {
+      "Center": 3006,
+      "Donut": 388,
+      "Edge-Loc": 3632,
+      "Edge-Ring": 6776,
+      "Loc": 2514,
+      "Near-full": 107,
+      "Random": 605,
+      "Scratch": 835,
+      "none": 103204
+    },
+    "val": {
+      "Center": 644,
+      "Donut": 83,
+      "Edge-Loc": 778,
+      "Edge-Ring": 1452,
+      "Loc": 539,
+      "Near-full": 21,
+      "Random": 130,
+      "Scratch": 179,
+      "none": 22117
+    },
+    "test": {
+      "Center": 644,
+      "Donut": 84,
+      "Edge-Loc": 779,
+      "Edge-Ring": 1452,
+      "Loc": 540,
+      "Near-full": 21,
+      "Random": 131,
+      "Scratch": 179,
+      "none": 22106
+    }
+  },
+  "split_lots": {
+    "train": 7524,
+    "val": 1618,
+    "test": 1620
+  },
+  "dropped": {
+    "fewer_than_100_dies": 67
+  },
+  "dropped_labelled": {
+    "fewer_than_100_dies:none": 4
+  },
+  "raw_file": "LSWMD.pkl",
+  "raw_sha256": "1d04fccb3dd3176b276878b926b20fead7e077c5751e4d353ea9741a5e7b5c65",
+  "raw_rows": 811457,
+  "scope": "labelled-lots",
+  "seed": 42,
+  "rows_written": 244841
+}
