@@ -52,6 +52,10 @@ services:
     environment:
       <<: *api-env
       SEED_LIMIT_LOTS: ${SEED_LIMIT_LOTS:-}
+    # Same image as the API, but no server runs here: the image's HTTP health check would
+    # mark this one-shot job unhealthy and make `docker compose up --wait` fail.
+    healthcheck:
+      disable: true
     depends_on:
       api:
         condition: service_healthy
