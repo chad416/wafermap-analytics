@@ -33,9 +33,15 @@ export function ClassifyPage() {
   }
 
   async function loadSample(name: string) {
-    const res = await fetch(`/samples/${name}.csv`);
-    const blob = await res.blob();
-    await classify(new File([blob], `${name}.csv`, { type: "text/csv" }));
+    try {
+      const res = await fetch(`/samples/${name}.csv`);
+      if (!res.ok) throw new Error(`could not load sample "${name}" (HTTP ${res.status})`);
+      const blob = await res.blob();
+      await classify(new File([blob], `${name}.csv`, { type: "text/csv" }));
+    } catch (e) {
+      setResult(null);
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   return (
@@ -70,11 +76,12 @@ export function ClassifyPage() {
           e.preventDefault();
           setDragging(false);
           const f = e.dataTransfer.files[0];
-          if (f) void classify(f);
+          if (f && !busy) void classify(f);
         }}
       >
         <input
           type="file"
+          disabled={busy}
           accept=".csv,.txt,.json,.npy"
           aria-label="wafer map file"
           onChange={(e) => {
@@ -87,7 +94,7 @@ export function ClassifyPage() {
       <p className="samples">
         Synthetic samples:{" "}
         {SAMPLES.map((s) => (
-          <button key={s} className="link" onClick={() => void loadSample(s)}>
+          <button key={s} className="link" disabled={busy} onClick={() => void loadSample(s)}>
             {s}
           </button>
         ))}

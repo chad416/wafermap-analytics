@@ -64,4 +64,15 @@ describe("ClassifyPage", () => {
     );
     expect(await screen.findByRole("alert")).toHaveTextContent("need at least 100");
   });
+
+  it("reports a sample that cannot be loaded instead of failing silently", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 404 }));
+    render(
+      <MemoryRouter>
+        <ClassifyPage />
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "donut" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent('sample "donut" (HTTP 404)');
+  });
 });

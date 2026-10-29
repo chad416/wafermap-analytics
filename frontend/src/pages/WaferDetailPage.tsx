@@ -67,7 +67,9 @@ function WaferDetail({ id }: { id: number }) {
       </section>
       <section className="grid-2">
         <div className="card center">
-          {map.data ? (
+          {map.error ? (
+            <ErrorBox message={map.error} />
+          ) : map.data ? (
             <WaferMap
               grid={map.data.grid}
               size={420}
