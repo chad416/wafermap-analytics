@@ -115,7 +115,7 @@ def train_cnn(
     reports_dir: Path,
     *,
     seed: int = 42,
-    epochs: int = 30,
+    epochs: int = 12,
     threads: int = 0,
 ) -> dict[str, Any]:
     torch.manual_seed(seed)

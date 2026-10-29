@@ -94,8 +94,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=_cmd_train_baseline)
 
     sp = sub.add_parser("train-cnn", help="train the CNN and export ONNX")
-    sp.add_argument("--epochs", type=int, default=30)
-    sp.add_argument("--threads", type=int, default=0, help="torch CPU threads (0 = default)")
+    sp.add_argument("--epochs", type=int, default=12)
+    sp.add_argument(
+        "--threads",
+        type=int,
+        default=6,
+        help="torch CPU threads (fewer threads degrade less on a busy shared CPU)",
+    )
     sp.set_defaults(func=_cmd_train_cnn)
 
     sp = sub.add_parser("report", help="write summary tables, latency and figures")
