@@ -1,19 +1,17 @@
-# Dataset (never committed - see scripts/fetch_dataset.py and DATA_LICENSE.md)
-data/raw/
-data/processed/
-data/*.db
-# SQLite journal / WAL side files
-data/*.db-*
+# Dataset, processed data and local databases (never committed; see DATA_LICENSE.md)
+/data/
 *.pkl
 
 # Python
 __pycache__/
 *.py[cod]
 .venv/
+venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
+coverage.xml
 htmlcov/
 *.egg-info/
 dist/
@@ -35,3 +33,7 @@ frontend/coverage/
 .idea/
 .DS_Store
 Thumbs.db
+*.log
+
+# Private local notes
+/*_NOTES.md
