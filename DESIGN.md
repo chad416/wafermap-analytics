@@ -48,8 +48,9 @@ flowchart LR
 ```
 
 Training and serving have different dependencies on purpose. The API image does not contain
-PyTorch, pandas or matplotlib: the CNN is exported to ONNX and run with ONNX Runtime (~15 MB
-instead of ~800 MB), and the parquet ingest uses `pyarrow` directly.
+PyTorch, pandas, scikit-learn or matplotlib: the CNN is exported to ONNX and run with ONNX Runtime
+(43 MB installed, against 489 MB for the PyTorch CPU build, both measured in the dev venv), and the
+parquet ingest uses `pyarrow` directly. The API image is 281 MB compressed.
 
 ## 3. Data pipeline
 
@@ -73,9 +74,10 @@ eccentricity, solidity, centroid radius). Connected components run on the origin
 resampling would merge or split clusters.
 
 Hyper-parameters (class-weight exponent α ∈ {0, 0.5, 1} × leaves ∈ {31, 63}) are chosen on
-validation macro-F1 with early stopping. Validation chose **α = 0, no re-weighting**: re-weighting
-made the model over-predict minority classes on a 'none'-dominated validation set and cost more
-precision than it gained recall. This is reported as a finding, not hidden.
+validation macro-F1 with early stopping. Validation chose **α = 0, no re-weighting** (validation
+macro-F1 0.889 vs 0.881 for α = 0.5 and 0.838–0.858 for α = 1; all trials are in
+`reports/metrics/baseline.json`). On a 'none'-dominated distribution, re-weighting bought minority
+recall at too high a cost in false alarms. This is reported as a finding, not hidden.
 
 ### CNN
 
@@ -110,11 +112,13 @@ correlated.
   version is the first 12 hex chars of the weight file's SHA-256, so a prediction row records
   exactly which bytes produced it. (Weights are written with LF line endings so the hash does not
   depend on the OS that wrote them.)
-- **Batch predictions at ingest, on-demand for the baseline.** The CNN classifies a wafer in about
-  a millisecond, so all 245k ingested wafers get a stored prediction and the analytics queries are
-  plain SQL. The baseline's feature extraction costs about 12 ms per wafer (Radon + region props),
-  so it runs only on request (`/predict?model=baseline`, or "Classify with baseline" in the UI).
-  Measured numbers are in `reports/metrics/latency.json`.
+- **Batch predictions at ingest, on-demand for the baseline.** The CNN is cheap: 6.0 ms median for a
+  single wafer and 194 wafers/s in a batch on a heavily loaded laptop (`reports/metrics/latency.json`).
+  Inside Docker the seed job ingested and labelled all 244,841 wafers in 195 s (about 1,250 wafers/s,
+  including decode and PostgreSQL inserts). So every wafer gets a stored prediction and the analytics
+  queries are plain SQL. The baseline's feature extraction (Radon transform + region properties) is
+  roughly 10× slower per wafer (57 ms median), so it runs only on request (`/predict?model=baseline`,
+  or "Classify with baseline" in the UI).
 - **Denormalised lot aggregates** (`lots.wafer_count`, `lots.mean_yield`), refreshed by one
   `UPDATE … (SELECT …)` after ingest or upload. A lot list page never scans the wafer table.
 - **Deferred blob column**: `wafers.map_zlib` is `deferred()`, so list endpoints never load it.
@@ -142,7 +146,8 @@ correlated.
   and screenshots are reproducible.
 - `useApi` aborts the previous request when its inputs change, so a slow page can never overwrite
   a newer one. Loading state is derived, with no synchronous `setState` in effects.
-- Route-level code splitting: recharts (~110 kB gzip) loads only with the overview page.
+- Route-level code splitting: the overview chunk (108 kB gzip, mostly recharts) loads only with
+  the overview page; the other pages are 1–3 kB each on top of the 84 kB core bundle.
 
 ## 8. Limitations and what would change in a real fab
 
@@ -164,8 +169,8 @@ correlated.
 
 | Option | Why not (here) |
 |---|---|
-| Random wafer-level split | Leaks lot-mates across splits; inflated, non-transferable numbers. |
-| Pretrained ResNet / transfer learning | 11 M+ parameters for 64×64 binary-ish images; slow on CPU, and the small CNN already reaches a similar score in the literature. Worth trying with a GPU. |
+| Random wafer-level split | Leaks lot-mates across splits. Measured on this dataset, it did *not* inflate the baseline (0.880 random vs 0.887 lot-grouped, `reports/metrics/split_leakage.json`), but there is no guarantee for other models or data, and the grouped split costs nothing. |
+| Pretrained ResNet / transfer learning | 11 M+ parameters for 64×64 two-channel maps; too slow to train on the available CPU. The 0.3 M-parameter CNN already matches the baseline, and its best epoch was the last one, so a longer schedule should come first. Worth trying with a GPU. |
 | Serving PyTorch directly | ~10× larger image and slower cold start; ONNX Runtime gives the same logits (parity-checked). |
 | SQLite in production | Fine for a single user (it is the local default and the test DB); compose uses PostgreSQL for concurrent writers and to prove the migrations are portable (CI runs the API tests on both). |
 | One `<div>` per die | Simple, but the DOM falls over on 60k-die maps × 25 thumbnails. |
