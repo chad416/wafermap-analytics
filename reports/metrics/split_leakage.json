@@ -1,0 +1,27 @@
+{
+  "config": {
+    "alpha": 0.0,
+    "num_leaves": 31,
+    "best_iteration": 179,
+    "val_macro_f1": 0.8889,
+    "seconds": 31.9
+  },
+  "random_split": {
+    "test_macro_f1": 0.8801,
+    "ci95": [
+      0.8626,
+      0.8936
+    ],
+    "test_lots_also_in_train": 7374,
+    "test_lots": 7753
+  },
+  "lot_grouped_split": {
+    "test_macro_f1": 0.8869,
+    "ci95": [
+      0.8616,
+      0.9021
+    ],
+    "test_lots_also_in_train": 0
+  },
+  "inflation_macro_f1": -0.0068
+}

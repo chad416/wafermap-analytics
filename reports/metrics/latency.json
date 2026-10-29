@@ -1,0 +1,14 @@
+{
+  "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "n": 500,
+  "cnn": {
+    "single_ms_median": 5.99,
+    "single_ms_p95": 16.29,
+    "batch_wafers_per_s": 193.8
+  },
+  "baseline": {
+    "single_ms_median": 57.2,
+    "single_ms_p95": 105.91,
+    "batch_wafers_per_s": 17.9
+  }
+}
