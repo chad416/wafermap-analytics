@@ -1,14 +1,20 @@
 {
-  "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
-  "n": 500,
+  "cpu": "13th Gen Intel(R) Core(TM) i5-13450HX",
+  "logical_cpus": 16,
+  "os": "Windows",
+  "python": "3.12.10",
+  "onnxruntime": "1.31.1",
+  "lightgbm": "4.7.0",
+  "n_single": 200,
+  "n_batch": 500,
   "cnn": {
-    "single_ms_median": 5.99,
-    "single_ms_p95": 16.29,
-    "batch_wafers_per_s": 193.8
+    "single_ms_median": 0.72,
+    "single_ms_p95": 0.96,
+    "batch_wafers_per_s": 1753.9
   },
   "baseline": {
-    "single_ms_median": 57.2,
-    "single_ms_p95": 105.91,
-    "batch_wafers_per_s": 17.9
+    "single_ms_median": 12.75,
+    "single_ms_p95": 14.47,
+    "batch_wafers_per_s": 99.5
   }
 }

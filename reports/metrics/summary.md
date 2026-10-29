@@ -2,10 +2,10 @@
 
 | Model | Val macro-F1 | Test macro-F1 [95 % lot-bootstrap CI] | Test macro-F1 (8 defect classes) | Test balanced acc. | Test accuracy | Latency, 1 wafer (median) | Batch throughput (wafers/s) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| baseline | 0.889 | **0.887** [0.862, 0.902] | 0.874 | 0.862 | 0.979 | 57.2 ms | 18 |
-| cnn | 0.893 | **0.899** [0.879, 0.913] | 0.887 | 0.924 | 0.977 | 6.0 ms | 194 |
+| baseline | 0.889 | **0.887** [0.862, 0.902] | 0.874 | 0.862 | 0.979 | 12.8 ms | 100 |
+| cnn | 0.893 | **0.899** [0.879, 0.913] | 0.887 | 0.924 | 0.977 | 0.7 ms | 1,754 |
 
-Test split: 25,936 wafers from held-out lots. Latency measured on `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel`, single process, CPU only.
+Test split: 25,936 wafers from held-out lots. Latency: median of 200 single-wafer calls, throughput from one batch of 500, on `13th Gen Intel(R) Core(TM) i5-13450HX` (16 logical CPUs, Windows), CPU only, decoded grid to probabilities.
 
 | Class | Test support | Baseline P / R / F1 | CNN P / R / F1 |
 |---|---:|---|---|

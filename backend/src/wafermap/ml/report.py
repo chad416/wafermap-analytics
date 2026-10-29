@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import platform
+import sys
 import time
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -31,22 +34,56 @@ def _load(reports_dir: Path, name: str) -> dict[str, Any]:
     return dict(json.loads((reports_dir / "metrics" / f"{name}.json").read_text()))
 
 
-def latency(model_dir: Path, processed_dir: Path, n: int = 500, seed: int = 0) -> dict[str, Any]:
+def cpu_name() -> str:
+    """Marketing name of the CPU, e.g. "13th Gen Intel(R) Core(TM) i5-13450HX"."""
+    if sys.platform == "win32":
+        import winreg
+
+        key = r"HARDWARE\DESCRIPTION\System\CentralProcessor\0"
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key) as k:
+                return str(winreg.QueryValueEx(k, "ProcessorNameString")[0]).strip()
+        except OSError:
+            pass
+    else:
+        try:
+            for line in Path("/proc/cpuinfo").read_text().splitlines():
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+        except OSError:
+            pass
+    return platform.processor() or platform.machine()
+
+
+def latency(
+    model_dir: Path, processed_dir: Path, n: int = 500, n_single: int = 200, seed: int = 0
+) -> dict[str, Any]:
     """Median / p95 latency for one wafer per call, and throughput for a batch of ``n``.
 
-    Uses validation-split maps (any real maps would do; no labels are used).
+    Timed from a decoded die grid to class probabilities, i.e. what ``/predict`` spends in the
+    model: resampling + CNN, or feature extraction + LightGBM. Decoding, HTTP and the database
+    are excluded. Models are warmed up first. Uses validation-split maps (no labels are used).
     """
     data = load_labelled(processed_dir)
     rng = np.random.default_rng(seed)
     idx = rng.choice(np.flatnonzero(data["split"] == "val"), size=n, replace=False)
     maps = [wafer.decode(data["map_zlib"][i], data["rows"][i], data["cols"][i]) for i in idx]
     reg = ModelRegistry(model_dir)
-    out: dict[str, Any] = {"cpu": platform.processor() or platform.machine(), "n": n}
+    reg.warm_up()
+    out: dict[str, Any] = {
+        "cpu": cpu_name(),
+        "logical_cpus": os.cpu_count(),
+        "os": platform.system(),
+        "python": platform.python_version(),
+        "onnxruntime": version("onnxruntime"),
+        "lightgbm": version("lightgbm"),
+        "n_single": n_single,
+        "n_batch": n,
+    }
     for name in reg.names():
         clf = reg.get(name)
-        clf.predict_proba(maps[:5])  # warm-up (session creation, lazy imports)
         single = []
-        for m in maps[:200]:
+        for m in maps[:n_single]:
             t0 = time.perf_counter()
             clf.predict_proba([m])
             single.append((time.perf_counter() - t0) * 1000)
@@ -101,7 +138,9 @@ def summary_markdown(base: dict[str, Any], cnn: dict[str, Any], lat: dict[str, A
             row("cnn", cnn),
             "",
             f"Test split: {base['test']['n']:,} wafers from held-out lots. "
-            f"Latency measured on `{lat['cpu']}`, single process, CPU only.",
+            f"Latency: median of {lat['n_single']} single-wafer calls, throughput from one "
+            f"batch of {lat['n_batch']}, on `{lat['cpu']}` ({lat['logical_cpus']} logical CPUs, "
+            f"{lat['os']}), CPU only, decoded grid to probabilities.",
             "",
             per_class_table(base, cnn),
             "",
