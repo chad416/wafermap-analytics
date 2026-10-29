@@ -169,3 +169,11 @@ def test_upload_and_save(client: TestClient) -> None:
 def test_models_endpoint(client: TestClient) -> None:
     names = {m["name"] for m in client.get("/api/v1/models").json()}
     assert names == {"cnn", "baseline"}
+
+
+@needs_models
+def test_models_are_loaded_at_startup(client: TestClient) -> None:
+    # warm_up() in the lifespan: the first request must not pay for model loading
+    registry = client.app.state.registry  # type: ignore[attr-defined]
+    assert "_session" in vars(registry.get("cnn"))
+    assert "_booster" in vars(registry.get("baseline"))

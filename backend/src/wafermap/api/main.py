@@ -35,6 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.registry = ModelRegistry(settings.model_dir)
+        app.state.registry.warm_up()
         log.info("models loaded: %s", app.state.registry.names())
         yield
 

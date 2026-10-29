@@ -104,6 +104,18 @@ class ModelRegistry:
     def names(self) -> list[str]:
         return list(self._models)
 
+    def warm_up(self) -> None:
+        """Load every model and run one prediction so the first request is not a cold start.
+
+        The first baseline call imports scikit-image / SciPy and parses the LightGBM text model;
+        without this, the first ``/predict`` response (and the latency it reports) includes that.
+        """
+        yy, xx = np.mgrid[:32, :32]
+        probe = np.where((yy - 15.5) ** 2 + (xx - 15.5) ** 2 < 15**2, 1, 0).astype(np.uint8)
+        probe[10:14, 10:14] = 2
+        for clf in self._models.values():
+            clf.predict_proba([probe])
+
     def get(self, name: str) -> Classifier:
         try:
             return self._models[name]
