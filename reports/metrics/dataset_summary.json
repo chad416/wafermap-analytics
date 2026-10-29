@@ -72,6 +72,13 @@
   "dropped_labelled": {
     "fewer_than_100_dies:none": 4
   },
+  "grid_shapes": {
+    "distinct_raw": 632,
+    "distinct_in_scope": 347,
+    "max_rows_raw": 300,
+    "max_cols_raw": 205
+  },
+  "labelled_n_die_percentile_1": 500,
   "raw_file": "LSWMD.pkl",
   "raw_sha256": "1d04fccb3dd3176b276878b926b20fead7e077c5751e4d353ea9741a5e7b5c65",
   "raw_rows": 811457,

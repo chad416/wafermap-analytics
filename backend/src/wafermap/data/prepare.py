@@ -159,7 +159,15 @@ def prepare(
 
     # --- reporting ----------------------------------------------------------------------------
     summary = build_summary(labels, split, labelled, dropped, dropped_labelled, lot_names, in_scope)
+    raw_shapes = {(a.shape[0], a.shape[1]) for a in map(np.asarray, maps) if a.ndim == 2}
     summary.update(
+        grid_shapes={
+            "distinct_raw": len(raw_shapes),
+            "distinct_in_scope": len({(int(r), int(c)) for r, c in shapes}),
+            "max_rows_raw": max(r for r, _ in raw_shapes),
+            "max_cols_raw": max(c for _, c in raw_shapes),
+        },
+        labelled_n_die_percentile_1=int(np.percentile(n_die[labelled], 1)),
         raw_file=RAW_FILENAME,
         raw_sha256=digest,
         raw_rows=n_raw,
