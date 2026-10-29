@@ -40,7 +40,7 @@ migrate:         ## apply Alembic migrations (SQLite by default)
 ingest: migrate  ## load processed data into the DB with batch CNN predictions
 	$(RUN) wafermap ingest
 
-api:             ## run the API with auto-reload on :8000
+api: migrate     ## run the API with auto-reload on :8000
 	$(RUN) uvicorn wafermap.api.main:app --reload --port 8000
 
 web:             ## run the Vite dev server on :5173 (proxies /api to :8000)

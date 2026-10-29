@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 
 def make_engine(url: str, **kwargs: Any) -> Engine:
     if url.startswith("sqlite"):
+        # A fresh checkout has no data/ directory yet; SQLite will not create it.
+        database = make_url(url).database
+        if database and database != ":memory:":
+            Path(database).parent.mkdir(parents=True, exist_ok=True)
         kwargs.setdefault("connect_args", {"check_same_thread": False})
         engine = create_engine(url, **kwargs)
 

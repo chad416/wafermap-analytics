@@ -81,3 +81,10 @@ def test_ingest_missing_file(tmp_path: Path) -> None:
     s = Settings(database_url=f"sqlite:///{(tmp_path / 'm.db').as_posix()}", data_dir=tmp_path)
     with pytest.raises(FileNotFoundError):
         ingest(s)
+
+
+def test_migrate_creates_missing_sqlite_directory(tmp_path: Path) -> None:
+    # A fresh checkout has no data/ directory; migrating the default SQLite URL must still work.
+    db = tmp_path / "not-yet-created" / "wafermap.db"
+    upgrade(f"sqlite:///{db.as_posix()}")
+    assert db.exists()
