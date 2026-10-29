@@ -32,6 +32,32 @@ def macro_f1(y_true: IntArray, y_pred: IntArray) -> float:
     return float(f1_from_confusion(confusion(y_true, y_pred)).mean())
 
 
+def _per_lot_confusions(
+    y_true: IntArray, y_pred: IntArray, lot_index: IntArray, n_lots: int
+) -> IntArray:
+    """Flattened confusion matrix per lot, shape ``(n_lots, n_classes**2)``."""
+    n = len(CLASSES)
+    per_lot = np.zeros((n_lots, n * n), dtype=np.int64)
+    np.add.at(per_lot, (lot_index, y_true * n + y_pred), 1)
+    return per_lot
+
+
+def _lot_resampled_macro_f1(
+    per_lot: list[IntArray], n_boot: int, seed: int
+) -> npt.NDArray[np.float64]:
+    """Macro-F1 of each model in ``per_lot`` on the same ``n_boot`` lot resamples."""
+    rng = np.random.default_rng(seed)
+    n_lots = per_lot[0].shape[0]
+    n = len(CLASSES)
+    scores = np.empty((n_boot, len(per_lot)))
+    for b in range(n_boot):
+        counts = np.bincount(rng.integers(0, n_lots, n_lots), minlength=n_lots)
+        for k, pl in enumerate(per_lot):
+            cm = (pl * counts[:, None]).sum(axis=0).reshape(n, n)
+            scores[b, k] = f1_from_confusion(cm).mean()
+    return scores
+
+
 def bootstrap_macro_f1(
     y_true: IntArray, y_pred: IntArray, groups: npt.NDArray[Any], n_boot: int = 1000, seed: int = 0
 ) -> tuple[float, float]:
@@ -40,19 +66,58 @@ def bootstrap_macro_f1(
     Wafers in a lot are correlated, so resampling individual wafers would understate the
     uncertainty; we resample whole lots instead.
     """
-    rng = np.random.default_rng(seed)
     uniq, inv = np.unique(groups, return_inverse=True)
-    n = len(CLASSES)
-    # Per-lot confusion matrices, then sum lots drawn with replacement.
-    per_lot = np.zeros((len(uniq), n * n), dtype=np.int64)
-    np.add.at(per_lot, (inv, y_true * n + y_pred), 1)
-    scores = np.empty(n_boot)
-    for b in range(n_boot):
-        counts = np.bincount(rng.integers(0, len(uniq), len(uniq)), minlength=len(uniq))
-        cm = (per_lot * counts[:, None]).sum(axis=0).reshape(n, n)
-        scores[b] = f1_from_confusion(cm).mean()
+    per_lot = _per_lot_confusions(y_true, y_pred, inv, len(uniq))
+    scores = _lot_resampled_macro_f1([per_lot], n_boot, seed)[:, 0]
     lo, hi = np.percentile(scores, [2.5, 97.5])
     return float(lo), float(hi)
+
+
+def paired_bootstrap_macro_f1_diff(
+    y_true: IntArray,
+    pred_a: IntArray,
+    pred_b: IntArray,
+    groups: npt.NDArray[Any],
+    n_boot: int = 2000,
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Lot-level paired bootstrap of ``macro_f1(pred_b) - macro_f1(pred_a)``.
+
+    Both models are scored on the same resampled lots in every replicate, so the variation
+    they share (which lots happen to be hard) cancels. Two overlapping marginal CIs say little
+    about the difference; this interval answers the question directly.
+    """
+    uniq, inv = np.unique(groups, return_inverse=True)
+    per_lot = [_per_lot_confusions(y_true, p, inv, len(uniq)) for p in (pred_a, pred_b)]
+    scores = _lot_resampled_macro_f1(per_lot, n_boot, seed)
+    diff = scores[:, 1] - scores[:, 0]
+    lo, hi = np.percentile(diff, [2.5, 97.5])
+    return {
+        "diff": round(macro_f1(y_true, pred_b) - macro_f1(y_true, pred_a), 4),
+        "ci95": [round(float(lo), 4), round(float(hi), 4)],
+        "share_of_resamples_b_better": round(float(np.mean(diff > 0)), 4),
+        "n_boot": n_boot,
+        "n_lots": len(uniq),
+    }
+
+
+def expected_calibration_error(
+    proba: npt.NDArray[np.floating[Any]], y_true: IntArray, n_bins: int = 15
+) -> dict[str, float]:
+    """Top-label expected calibration error with equal-width confidence bins."""
+    conf = proba.max(axis=1)
+    correct = proba.argmax(axis=1) == y_true
+    bins = np.minimum((conf * n_bins).astype(np.int64), n_bins - 1)
+    ece = 0.0
+    for b in range(n_bins):
+        sel = bins == b
+        if sel.any():
+            ece += sel.mean() * abs(float(correct[sel].mean()) - float(conf[sel].mean()))
+    return {
+        "ece": round(ece, 4),
+        "mean_confidence": round(float(conf.mean()), 4),
+        "accuracy": round(float(correct.mean()), 4),
+    }
 
 
 def evaluate(

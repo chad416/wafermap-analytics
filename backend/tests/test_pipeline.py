@@ -15,7 +15,14 @@ from synthetic import blank, center, edge_ring, scratch
 from wafermap.data.prepare import _flatten, assign_splits
 from wafermap.data.safe_pickle import RestrictedUnpickler
 from wafermap.features.engineered import N_FEATURES, extract, feature_names
-from wafermap.ml.metrics import bootstrap_macro_f1, confusion, evaluate, macro_f1
+from wafermap.ml.metrics import (
+    bootstrap_macro_f1,
+    confusion,
+    evaluate,
+    expected_calibration_error,
+    macro_f1,
+    paired_bootstrap_macro_f1_diff,
+)
 
 
 class _Evil:
@@ -98,3 +105,24 @@ def test_evaluate_and_bootstrap() -> None:
     assert sum(v["support"] for v in out["per_class"].values()) == 3000
     lo2, hi2 = bootstrap_macro_f1(y, p, groups, n_boot=200, seed=1)
     assert 0 < lo2 < hi2 < 1
+
+
+def test_paired_bootstrap_difference() -> None:
+    rng = np.random.default_rng(5)
+    y = rng.integers(0, 9, 3000)
+    weak = np.where(rng.random(3000) < 0.6, y, rng.integers(0, 9, 3000))
+    strong = np.where(rng.random(3000) < 0.9, y, rng.integers(0, 9, 3000))
+    groups = np.repeat(np.arange(300), 10)
+    same = paired_bootstrap_macro_f1_diff(y, weak, weak, groups, n_boot=100)
+    assert same["diff"] == 0 and same["ci95"] == [0.0, 0.0]
+    out = paired_bootstrap_macro_f1_diff(y, weak, strong, groups, n_boot=200)
+    assert 0 < out["ci95"][0] <= out["diff"] <= out["ci95"][1]
+    assert out["share_of_resamples_b_better"] == 1.0
+
+
+def test_expected_calibration_error() -> None:
+    y = np.array([0, 1, 0, 1])
+    perfect = np.eye(9)[y]
+    assert expected_calibration_error(perfect, y)["ece"] == 0.0
+    overconfident = np.eye(9)[[0, 0, 0, 0]]  # always 100 % sure, right half the time
+    assert expected_calibration_error(overconfident, y)["ece"] == pytest.approx(0.5)

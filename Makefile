@@ -7,8 +7,8 @@ BACKEND := backend
 FRONTEND:= frontend
 RUN     := cd $(BACKEND) && $(UV) run
 
-.PHONY: help install fetch-data data features train train-baseline train-cnn migrate ingest \
-        api web dev test test-backend test-frontend lint format typecheck build up down clean
+.PHONY: help install fetch-data data features train train-baseline train-cnn report migrate \
+        ingest api web test test-backend test-frontend lint format typecheck build up down clean
 
 help:            ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-16s %s\n",$$1,$$2}'
@@ -32,7 +32,12 @@ train-baseline: features ## train + evaluate the LightGBM baseline
 train-cnn:       ## train + evaluate the CNN, export ONNX (CPU, ~1-2 h)
 	$(RUN) wafermap train-cnn
 
-train: train-baseline train-cnn ## reproduce both models and all metrics/figures
+train: train-baseline train-cnn ## reproduce both models, their metrics and confusion matrices
+
+report:          ## summary table, latency, figures, split-leakage check, paired comparison
+	$(RUN) wafermap report
+	$(RUN) python ../scripts/split_leakage_experiment.py
+	$(RUN) python ../scripts/compare_models.py
 
 migrate:         ## apply Alembic migrations (SQLite by default)
 	$(RUN) wafermap migrate
@@ -48,10 +53,10 @@ web:             ## run the Vite dev server on :5173 (proxies /api to :8000)
 
 test: test-backend test-frontend ## all tests
 
-test-backend:
+test-backend:    ## pytest (SQLite)
 	$(RUN) pytest
 
-test-frontend:
+test-frontend:   ## vitest
 	cd $(FRONTEND) && $(NPM) test
 
 lint:            ## ruff + mypy + eslint + prettier check
@@ -65,7 +70,7 @@ format:          ## auto-format backend and frontend
 	$(RUN) ruff check --fix .
 	cd $(FRONTEND) && $(NPM) run format
 
-typecheck:
+typecheck:       ## mypy + tsc
 	$(RUN) mypy
 	cd $(FRONTEND) && $(NPM) run typecheck
 
