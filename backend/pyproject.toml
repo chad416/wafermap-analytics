@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Wafer-map defect analytics: ingestion, defect-pattern classification and yield analytics for WM-811K style wafer test maps."
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
-# Runtime dependencies: everything the API container needs (no PyTorch — the CNN is served via ONNX Runtime).
+# Runtime dependencies: everything the API container needs (no PyTorch: the CNN is served via ONNX Runtime).
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",

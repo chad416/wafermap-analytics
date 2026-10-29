@@ -57,10 +57,10 @@ parquet ingest uses `pyarrow` directly. The API image is 281 MB compressed.
 | Decision | Why |
 |---|---|
 | **Restricted unpickler** (`data/safe_pickle.py`) | `LSWMD.pkl` is a 2015 Python-2 pandas pickle from a third-party mirror. `pickle.load` would run any callable the file names. The unpickler resolves an allow-list of ~10 numpy/pandas reconstruction helpers and remaps the legacy module paths; anything else raises. The file's SHA-256 is pinned too. |
-| **Drop maps with < 100 dies** | 67 maps (4 labelled) are sensor artefacts with 3–99 dies, too small to be real wafers. The threshold sits below the 1st percentile of labelled maps (500 dies). |
+| **Drop maps with < 100 dies** | 67 maps (4 labelled) are too small to be real wafers. The threshold sits well below the 1st percentile of labelled maps (500 dies, `labelled_n_die_percentile_1` in `dataset_summary.json`). |
 | **Keep complete lots that contain any labelled wafer** (245k wafers, 10,762 lots) | The lot view would look broken if only the labelled wafers of a lot were shown. Unlabelled wafers get model predictions at ingest. `--scope all` keeps all 811k. |
 | **Lot-grouped, label-stratified 70/15/15 split** (`StratifiedGroupKFold`) | Wafers in one lot share process history and often the same defect. A random wafer-level split leaks near-duplicates into test and inflates scores. No lot appears in two splits (unit-tested). The dataset's own `Training/Test` column is kept for reference but not used, because it is not lot-grouped. |
-| **Canonical 64×64 grid via exact area resampling** (`wafer.canonical`) | WM-811K has 632 distinct die-grid shapes (25×27 up to 300×202). Resampling to a fixed grid makes features and the CNN independent of die size. Area averaging (integral image) preserves the fail *fraction* exactly, which a nearest-neighbour resize does not (unit-tested on 8 to 300 px inputs). |
+| **Canonical 64×64 grid via exact area resampling** (`wafer.canonical`) | WM-811K has 632 distinct die-grid shapes (347 among the wafers kept here), up to 300 rows and 205 columns. Resampling to a fixed grid makes features and the CNN independent of die size. Area averaging (integral image) preserves the fail *fraction* exactly, which a nearest-neighbour resize does not (unit-tested on 8 to 300 px inputs). |
 | **Parquet, maps as zlib-compressed bytes** | 245k maps = 46 MB on disk; columnar reads for training; the same bytes go into the DB `LargeBinary` column without re-encoding. |
 
 ## 4. Models
@@ -75,20 +75,20 @@ resampling would merge or split clusters.
 
 Hyper-parameters (class-weight exponent α ∈ {0, 0.5, 1} × leaves ∈ {31, 63}) are chosen on
 validation macro-F1 with early stopping. Validation chose **α = 0, no re-weighting** (validation
-macro-F1 0.889 vs 0.881 for α = 0.5 and 0.838–0.858 for α = 1; all trials are in
+macro-F1 0.889 vs 0.881 for α = 0.5 and 0.838 to 0.858 for α = 1; all trials are in
 `reports/metrics/baseline.json`). On a 'none'-dominated distribution, re-weighting bought minority
 recall at too high a cost in false alarms. This is reported as a finding, not hidden.
 
 ### CNN
 
-Four conv blocks (16-32-64-128), global average pooling, 0.29 M parameters, ~55 M MACs per wafer.
+Four conv blocks (16-32-64-128), global average pooling, 0.29 M parameters, ~53 M MACs per wafer.
 Input: two channels (die coverage, fail coverage), quantised to uint8 so the training cache and
 the serving input are bit-identical.
 
 Imbalance handling:
 
-1. **Square-root sampling**: class mass ∝ √n_c per epoch. Near-full goes from 0.09 % to 1.5 % of
-   draws and 'none' from 85 % to 48 %. Full balancing was rejected for the same reason as α = 1
+1. **Square-root sampling**: class mass ∝ √n_c per epoch. Near-full goes from 0.09 % to 1.6 % of
+   draws and 'none' from 85 % to 49 %. Full balancing was rejected for the same reason as α = 1
    above.
 2. **Dihedral augmentation** (4 rotations × flip). WM-811K classes are defined by radial and local
    shape, not absolute orientation, so these transforms preserve the label.
@@ -100,11 +100,35 @@ is checked against PyTorch on 512 test inputs (max |Δlogit| is stored in `meta.
 
 ### Why macro-F1, and why a lot bootstrap
 
-Accuracy is meaningless here: predicting 'none' for everything scores 85 %. Macro-F1 weights the
-21-wafer Near-full class the same as the 22k-wafer 'none' class, which matches the engineering
-reality that rare signatures (Near-full: a dead tester or a gross process excursion) are the
-expensive ones. The 95 % CI resamples *lots*, not wafers, because wafers within a lot are
-correlated.
+Accuracy is meaningless here: predicting 'none' for everything scores 85 %. Macro-F1 over all
+nine classes ('none' included) weights the 21-wafer Near-full class the same as the 22k-wafer
+'none' class, which matches the engineering reality that rare signatures (Near-full: a dead
+tester or a gross process excursion) are the expensive ones. The average over the eight defect
+classes is reported next to it. The 95 % CI resamples *lots*, not wafers, because wafers within
+a lot are correlated.
+
+### Comparing the two models
+
+The marginal CIs of the two models overlap, which by itself says little: both are scored on the
+same lots, so most of their variation is shared. `scripts/compare_models.py` runs a paired lot
+bootstrap (both models scored on the same 2,000 resamples) of the macro-F1 difference: CNN minus
+baseline is +0.012 with a 95 % interval of [-0.007, +0.033], and the CNN is ahead in 89.5 % of
+resamples. That is a lean, not a result.
+
+The confusion matrices explain why. Defect-vs-defect errors are the same for both models (162 vs
+163). The CNN misses fewer defects (130 vs 247 of 3,830) and raises more false alarms on 'none'
+(316 vs 129 of 22,106). Square-root sampling trains the CNN on a 49 % 'none' prior instead of
+85 %, which shifts its boundary towards "defect". So most of the gap is a different operating
+point, and a fair comparison would fix the false-alarm rate on 'none' for both models first.
+
+### Calibration and thresholds
+
+Both models predict the arg-max class; there is no tuned threshold. The same script reports the
+top-label expected calibration error (15 bins) on the test split: 0.004 for LightGBM, 0.047 for
+the CNN, whose mean confidence (0.93) sits below its accuracy (0.98). Label smoothing and
+resampling both push confidences down, so this is expected. The CNN confidence shown in the UI
+is fine for ranking; before it gates a human-review queue it needs temperature scaling fitted on
+validation.
 
 ## 5. Serving
 
@@ -112,18 +136,24 @@ correlated.
   version is the first 12 hex chars of the weight file's SHA-256, so a prediction row records
   exactly which bytes produced it. (Weights are written with LF line endings so the hash does not
   depend on the OS that wrote them.)
-- **Batch predictions at ingest, on-demand for the baseline.** The CNN is cheap: 6.0 ms median for a
-  single wafer and 194 wafers/s in a batch on a heavily loaded laptop (`reports/metrics/latency.json`).
-  Inside Docker the seed job ingested and labelled all 244,841 wafers in 164–195 s (≈1,250–1,500 wafers/s,
-  including decode and PostgreSQL inserts). So every wafer gets a stored prediction and the analytics
-  queries are plain SQL. The baseline's feature extraction (Radon transform + region properties) is
-  roughly 10× slower per wafer (57 ms median), so it runs only on request (`/predict?model=baseline`,
-  or "Classify with baseline" in the UI).
+- **Batch predictions at ingest, on-demand for the baseline.** The CNN is cheap: 0.7 ms median for
+  a single wafer and about 1,770 wafers/s in a batch of 500 (`reports/metrics/latency.json`:
+  i5-13450HX laptop CPU, decoded grid to probabilities, models warmed up). Inside Docker the seed
+  job ingested and labelled all 244,841 wafers in 164 s on an idle laptop and 350 s with other
+  jobs running, including decode and PostgreSQL inserts. So every wafer gets a stored prediction
+  and the analytics queries are plain SQL. The baseline's feature extraction (Radon transform +
+  region properties) is about 18× slower per wafer (12.5 ms median), so it runs only on request
+  (`/predict?model=baseline`, or "Classify with baseline" in the UI).
+- **Warm-up at startup.** The first baseline call imports scikit-image and SciPy and parses the
+  LightGBM text model, which took several seconds on the development laptop. `ModelRegistry.warm_up()`
+  runs one prediction per model in the API lifespan, so neither the first user nor the
+  `latency_ms` field of the response pays for it.
 - **Denormalised lot aggregates** (`lots.wafer_count`, `lots.mean_yield`), refreshed by one
   `UPDATE … (SELECT …)` after ingest or upload. A lot list page never scans the wafer table.
 - **Planner statistics after bulk load**: ingest ends with `ANALYZE`. On SQLite, without it the
-  per-lot pattern-count query scanned all 245k predictions through the `(model_name, label)` index
-  (0.26 s); with statistics it starts from the lot index (2 ms), and `/lots` drops from 0.25 s to 5 ms.
+  per-lot pattern-count query scanned all 245k predictions through the `(model_name, label)` index;
+  with statistics it starts from the lot index. In one measurement on the development laptop that
+  took the query from 0.26 s to 2 ms and `/lots` from 0.25 s to 5 ms.
 - **Deferred blob column**: `wafers.map_zlib` is `deferred()`, so list endpoints never load it.
   `/wafers/{id}/map` is the only path that decodes a map.
 
@@ -143,14 +173,14 @@ correlated.
 
 ## 7. Frontend
 
-- **Canvas** wafer renderer: a 300×205 map has 61k dies; one canvas draws it in a few ms, where
-  61k DOM nodes would not. HiDPI-aware, with an ARIA label summarising the map for screen readers.
+- **Canvas** wafer renderer: the largest WM-811K grids have up to 300 rows and 205 columns (tens of
+  thousands of dies); one canvas draws them in a few ms, where that many DOM nodes would not. HiDPI-aware, with an ARIA label summarising the map for screen readers.
 - **URL is the state** for filters and paging (`?pattern=Scratch&page=3`), so views are shareable
   and screenshots are reproducible.
 - `useApi` aborts the previous request when its inputs change, so a slow page can never overwrite
   a newer one. Loading state is derived, with no synchronous `setState` in effects.
 - Route-level code splitting: the overview chunk (108 kB gzip, mostly recharts) loads only with
-  the overview page; the other pages are 1–3 kB each on top of the 84 kB core bundle.
+  the overview page; the other pages are 1 to 3 kB each on top of the 84 kB core bundle.
 
 ## 8. Limitations and what would change in a real fab
 
@@ -173,7 +203,7 @@ correlated.
 | Option | Why not (here) |
 |---|---|
 | Random wafer-level split | Leaks lot-mates across splits. Measured on this dataset, it did *not* inflate the baseline (0.880 random vs 0.887 lot-grouped, `reports/metrics/split_leakage.json`), but there is no guarantee for other models or data, and the grouped split costs nothing. |
-| Pretrained ResNet / transfer learning | 11 M+ parameters for 64×64 two-channel maps; too slow to train on the available CPU. The 0.3 M-parameter CNN already matches the baseline, and its best epoch was the last one, so a longer schedule should come first. Worth trying with a GPU. |
-| Serving PyTorch directly | ~10× larger image and slower cold start; ONNX Runtime gives the same logits (parity-checked). |
+| Pretrained ResNet / transfer learning | 11 M+ parameters for 64×64 two-channel maps; too slow to train on the available CPU. The 0.3 M-parameter CNN already matches the baseline, and its validation score was still rising at epoch 12, so a longer schedule should come first. Worth trying with a GPU. |
+| Serving PyTorch directly | PyTorch CPU is 489 MB installed against 43 MB for ONNX Runtime, and starts slower; ONNX Runtime gives the same logits (parity-checked). |
 | SQLite in production | Fine for a single user (it is the local default and the test DB); compose uses PostgreSQL for concurrent writers and to prove the migrations are portable (CI runs the API tests on both). |
 | One `<div>` per die | Simple, but the DOM falls over on 60k-die maps × 25 thumbnails. |

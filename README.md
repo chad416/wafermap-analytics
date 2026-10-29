@@ -1,57 +1,43 @@
 # Wafer-map defect analytics
 
-A full-stack platform that ingests wafer test maps, classifies their spatial failure pattern
-with machine learning, and serves lot- and yield-level analytics through a typed REST API and a
-React UI. It is built on WM-811K, a public dataset of 811,457 real wafer maps from production.
+Classifies the spatial failure pattern of wafer test maps (Center, Edge-Ring, Scratch, ...) on
+the public WM-811K dataset, and serves lot and yield analytics through a FastAPI backend and a
+React UI. The pattern on a wafer map points to the process step that caused the failures, so
+labelling every map automatically is how excursions get routed to the right module quickly.
 
-**Stack:** Python 3.12 · FastAPI · SQLAlchemy 2 + Alembic · PostgreSQL / SQLite · LightGBM ·
-PyTorch → ONNX Runtime · React 19 + TypeScript (Vite) · Docker Compose · GitHub Actions
+| Model | Test macro-F1, 9 classes [95 % lot-bootstrap CI] | Macro-F1, 8 defect classes | Balanced accuracy | Latency, 1 wafer |
+|---|---:|---:|---:|---:|
+| LightGBM on 76 engineered features | 0.887 [0.862, 0.902] | 0.874 | 0.862 | 12.5 ms |
+| CNN, 0.3 M parameters, served with ONNX Runtime | **0.899** [0.879, 0.913] | **0.887** | **0.924** | **0.7 ms** |
 
-![Overview](docs/screenshots/01_overview.png)
+25,936 test wafers from 1,620 lots that the models never saw during training or tuning. The CNN
+is ahead by 0.012 macro-F1, but the paired lot-bootstrap interval for that difference is
+[-0.007, +0.033], so on this test set the two models are not separable on macro-F1. They differ
+clearly in where they make mistakes (see [Error analysis](#error-analysis)).
 
----
+![Fab overview page](docs/screenshots/01_overview.png)
 
-## 1. Problem: why wafer-map patterns matter
+```bash
+docker compose up --build        # UI http://localhost:8080, API docs http://localhost:8000/docs
+```
 
-After front-end processing, every die on a wafer is electrically tested at wafer sort. The result
-is a *wafer map*: a grid of pass/fail dies. Yield engineers rarely look at the yield number alone.
-The **spatial signature** of the failing dies points to the process step that caused them:
+This starts PostgreSQL, the API and the UI with the committed models. Without the dataset the
+database is empty and the Classify page works on uploaded maps; [How to run](#how-to-run)
+covers loading all 245k wafers.
 
-![Classes](reports/figures/class_examples.png)
-
-| Pattern | Typical root-cause family |
-|---|---|
-| Center | radial non-uniformity in deposition / CMP / etch, centre-hot chucks |
-| Donut | ring-shaped non-uniformity (e.g. spin-coat, thermal profile) |
-| Edge-Ring | edge exclusion problems, edge bead, etch/CMP edge effects |
-| Edge-Loc | localised edge damage: handling, clamp/ring contact |
-| Loc | local contamination or a defect cluster |
-| Scratch | mechanical damage (handling, CMP) – a line or arc |
-| Random | particle-driven random defectivity |
-| Near-full | gross failure: wrong recipe, tester/probe-card issue |
-| none | no systematic pattern |
-
-Classifying maps automatically lets a fab route an excursion to the right module (litho, etch,
-CMP, handling) within minutes of sort instead of after a manual review, and spot a signature
-spreading across lots before it costs a full lot of wafers.
-
-The hard parts are the ones a real fab has too: **extreme class imbalance** (85 % of labelled
-maps are 'none'; Near-full has 149 examples, **989 : 1**), 632 different die-grid sizes, noisy
-labels, and correlated wafers within a lot.
-
-## 2. Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph offline["Offline pipeline (make data / make train)"]
-    RAW[("LSWMD.pkl")] -->|restricted unpickler<br/>SHA-256 pinned| PREP["prepare<br/>clean · lot-grouped split"]
+  subgraph offline["Offline: make data / make train"]
+    RAW[("LSWMD.pkl")] -->|restricted unpickler, SHA-256 pinned| PREP["prepare: clean, lot-grouped split"]
     PREP --> PQ[("wafers.parquet")]
-    PQ --> GBM["LightGBM on<br/>76 engineered features"]
-    PQ --> CNN["CNN (PyTorch, CPU)"] -->|export + parity check| ONNX[("model.onnx")]
+    PQ --> GBM["LightGBM, 76 features"]
+    PQ --> CNN["CNN, PyTorch CPU"] -->|export + parity check| ONNX[("model.onnx")]
   end
   subgraph online["docker compose up"]
-    SEED["seed job<br/>batch predictions"] --> DB[(PostgreSQL)]
-    API["FastAPI<br/>ONNX Runtime · LightGBM"] --> DB
+    SEED["seed job: batch predictions"] --> DB[(PostgreSQL)]
+    API["FastAPI: ONNX Runtime, LightGBM"] --> DB
     WEB["nginx + React SPA"] -->|/api| API
   end
   PQ --> SEED
@@ -59,63 +45,51 @@ flowchart LR
   GBM --> API
 ```
 
-| Component | Path | Notes |
+| Part | Path |
+|---|---|
+| Data pipeline: safe loading, cleaning, lot-grouped splits | `backend/src/wafermap/data/` |
+| Features, models, metrics, report | `backend/src/wafermap/features/`, `backend/src/wafermap/ml/` |
+| Database: SQLAlchemy 2, Alembic (SQLite and PostgreSQL) | `backend/src/wafermap/db/`, `backend/alembic/` |
+| API: FastAPI, Pydantic schemas, OpenAPI | `backend/src/wafermap/api/` |
+| UI: React 19, TypeScript, canvas wafer viewer | `frontend/src/` |
+| Committed models and generated metrics | `models/`, `reports/` |
+
+## Data and evaluation protocol
+
+WM-811K has 811,457 wafer maps from real production, 172,950 of them labelled with one of nine
+classes. The data is not in this repository: `scripts/fetch_dataset.py` downloads it and checks
+its SHA-256 (source and terms in [DATA_LICENSE.md](DATA_LICENSE.md)).
+
+- **Imbalance.** 85.2 % of labelled maps are `none`; Near-full has 149 examples, a 989 : 1
+  ratio (65 : 1 among the defect classes). Accuracy is therefore not a useful headline:
+  predicting `none` everywhere scores 85 %.
+- **Cleaning.** 67 maps with fewer than 100 dies are dropped (4 labelled). Every wafer of every
+  lot that has a labelled wafer is kept, 244,841 wafers in 10,762 lots, so the lot views are
+  complete; unlabelled wafers get model predictions at ingest.
+- **Split.** Labelled wafers are split 70 / 15 / 15 **by lot** (`StratifiedGroupKFold`,
+  stratified by label): 121,067 / 25,943 / 25,936 wafers. Wafers in a lot share process history,
+  so no lot appears in two splits (unit-tested).
+- **Selection.** Hyper-parameters and the CNN epoch are chosen on validation macro-F1. Each
+  training script scores the test split once, after selection.
+- **Metric.** Macro-F1 over all nine classes, `none` included, so every rare pattern counts as
+  much as the clean class. The 8-defect-class average is reported next to it. Confidence
+  intervals resample whole lots (1,000 resamples), because wafers within a lot are correlated.
+
+All counts are in [`reports/metrics/dataset_summary.json`](reports/metrics/dataset_summary.json).
+
+## Models
+
+| | LightGBM baseline | CNN |
 |---|---|---|
-| Data pipeline | `backend/src/wafermap/data/` | safe loading, cleaning, splits, imbalance report |
-| Features + models | `backend/src/wafermap/features/`, `ml/` | baseline, CNN, metrics, ONNX export, report |
-| Database | `backend/src/wafermap/db/`, `backend/alembic/` | SQLAlchemy 2 models, Alembic migrations, ingest |
-| API | `backend/src/wafermap/api/` | FastAPI routers, Pydantic schemas, OpenAPI |
-| Frontend | `frontend/src/` | React + TS, canvas wafer viewer, recharts |
-| Ops | `docker-compose.yml`, `*/Dockerfile`, `Makefile`, `.github/workflows/ci.yml` | |
+| Input | 76 features on a 64 x 64 resampled map: radial, sector and grid fail density, Radon-transform profile, largest-cluster geometry | 2 x 64 x 64 map (die coverage, fail coverage) |
+| Size | 179 boosting rounds x 9 classes | 4 conv blocks, 295,017 parameters |
+| Imbalance | class-weight exponent chosen on validation: none (α = 0) | square-root class sampling, 8-fold dihedral augmentation, label smoothing 0.05 |
+| Training, laptop CPU | 6-configuration grid, 5 min | 12 epochs, 114 min |
+| Serving | feature extraction + LightGBM | ONNX Runtime, no PyTorch in the image; max logit difference to PyTorch 4.1e-6 |
 
-Design decisions and trade-offs are in **[DESIGN.md](DESIGN.md)**.
+Per-class test results (precision / recall / F1):
 
-## 3. Data
-
-`make data` downloads `LSWMD.pkl` (2.1 GB, SHA-256 verified; see [DATA_LICENSE.md](DATA_LICENSE.md)),
-loads it with a **restricted unpickler** (the file is a Python-2 pandas pickle from a public mirror,
-and plain `pickle.load` would execute arbitrary code), cleans it and writes `data/processed/`.
-The raw data is never committed.
-
-| | Count |
-|---|---:|
-| Raw wafer maps | 811,457 |
-| Dropped (fewer than 100 dies: sensor artefacts) | 67 (of which labelled: 4) |
-| Labelled wafers kept | 172,946 |
-| Wafers ingested (all wafers of the 10,762 lots that contain a labelled wafer) | 244,841 |
-| Train / val / test wafers (lots) | 121,067 (7,524) / 25,943 (1,618) / 25,936 (1,620) |
-| Largest / smallest class | none 147,427 / Near-full 149 → **989.4 : 1** (65.0 : 1 among defect classes) |
-
-Per-class counts and shares are in [`reports/metrics/dataset_summary.json`](reports/metrics/dataset_summary.json).
-
-![Class distribution](reports/figures/class_distribution.png)
-
-**Split protocol.** Labelled wafers are split 70 / 15 / 15 **by lot** (`StratifiedGroupKFold`,
-label-stratified): no lot appears in two splits. Wafers from one lot share process history, so a
-random wafer-level split would leak near-duplicates into the test set. Hyper-parameters and
-epochs are selected on validation only; the test split is scored once per model, at the end of
-its training script.
-
-## 4. Models and results
-
-Two models, the same splits, the same protocol: select on validation macro-F1, score test once.
-
-| | Baseline | CNN |
-|---|---|---|
-| Input | 76 engineered features (radial / sector / grid fail density, Radon-transform profile, largest-cluster geometry) | 2 × 64 × 64 canonical map (die coverage, fail coverage) |
-| Model | LightGBM, 179 trees × 9 classes | 4-block CNN, 295,017 parameters |
-| Imbalance handling | class-weight exponent α ∈ {0, 0.5, 1} chosen on validation → **α = 0.0** | √-frequency sampling, dihedral augmentation, label smoothing |
-| Training (laptop CPU) | 6-config grid, 5 min | 12 epochs, 114 min, best epoch 12 |
-| Serving | LightGBM + feature extraction | ONNX Runtime (max \|Δlogit\| vs PyTorch: 4.1e-06) |
-
-| Model | Val macro-F1 | Test macro-F1 [95 % lot-bootstrap CI] | Test macro-F1 (8 defect classes) | Test balanced acc. | Test accuracy | Latency, 1 wafer (median) | Batch throughput (wafers/s) |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| baseline | 0.889 | **0.887** [0.862, 0.902] | 0.874 | 0.862 | 0.979 | 57.2 ms | 18 |
-| cnn | 0.893 | **0.899** [0.879, 0.913] | 0.887 | 0.924 | 0.977 | 6.0 ms | 194 |
-
-Test split: 25,936 wafers from held-out lots. Latency measured on `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel`, single process, CPU only.
-
-| Class | Test support | Baseline P / R / F1 | CNN P / R / F1 |
+| Class | Test wafers | LightGBM | CNN |
 |---|---:|---|---|
 | Center | 644 | 0.949 / 0.933 / **0.941** | 0.897 / 0.952 / **0.924** |
 | Donut | 84 | 0.899 / 0.738 / **0.810** | 0.884 / 0.905 / **0.894** |
@@ -127,195 +101,168 @@ Test split: 25,936 wafers from held-out lots. Latency measured on `Intel64 Famil
 | Scratch | 179 | 0.881 / 0.665 / **0.758** | 0.745 / 0.866 / **0.801** |
 | none | 22,106 | 0.989 / 0.994 / **0.992** | 0.994 / 0.986 / **0.990** |
 
-![Per-class F1](reports/figures/per_class_f1.png)
+Near-full has 21 test wafers, so one error moves its recall by 0.05; read that row as noise.
 
-| CNN confusion matrix (test) | Baseline confusion matrix (test) |
+## Error analysis
+
+| CNN, test split (row-normalised) | LightGBM, test split |
 |---|---|
-| ![CNN](reports/figures/confusion_cnn.png) | ![Baseline](reports/figures/confusion_baseline.png) |
+| ![CNN confusion matrix](reports/figures/confusion_cnn.png) | ![LightGBM confusion matrix](reports/figures/confusion_baseline.png) |
 
-**Reading the results**
+The two models make almost the same number of defect-vs-defect mistakes (162 and 163). The
+difference is the boundary between "some defect" and `none`:
 
-- The CNN is ahead on macro-F1 (0.899 vs 0.887), but the lot-bootstrap
-  intervals overlap, so the honest statement is *comparable, CNN slightly ahead*. The clearer
-  difference is **balanced accuracy, 0.924 vs 0.862**: the CNN finds far more of the rare
-  patterns (Scratch recall 0.87 vs 0.66, Donut 0.90 vs 0.74) and pays for it
-  with lower precision on Loc and Scratch. For yield triage, missing a scratch is usually worse
-  than a false alarm a human can dismiss in a second, so the CNN is the default model.
-- The remaining errors sit where the label definitions overlap: Loc ↔ Edge-Loc ↔ none, and Center ↔ Loc.
-  WM-811K "none" wafers can carry small clusters of failing dies (see the example in §1), so some
-  of these cells are likely label ambiguity rather than model error.
-- **Speed:** the CNN classifies one wafer in 6.0 ms (median) versus
-  57.2 ms for the feature pipeline, which is what makes batch-labelling all ingested wafers at load time
-  practical. Measured on a busy, shared laptop CPU ([`latency.json`](reports/metrics/latency.json)), so treat the absolute values as
-  pessimistic.
-- **Does the lot-grouped split matter here?** Measured, not assumed
-  ([`split_leakage.json`](reports/metrics/split_leakage.json)): the same baseline configuration on a
-  *random* wafer-level split scores 0.880 (CI 0.863–0.894), with
-  7,374 of 7,753 test lots also present in training, versus 0.887 lot-grouped. On WM-811K
-  the leak does **not** measurably inflate this model's score. The lot-grouped protocol is kept anyway,
-  because it is the one that matches deployment (new lots) and it costs nothing.
+| Test split | LightGBM | CNN |
+|---|---:|---:|
+| Defect wafers called `none` (missed), of 3,830 | 247 (6.4 %) | **130 (3.4 %)** |
+| `none` wafers called a defect (false alarm), of 22,106 | **129 (0.6 %)** | 316 (1.4 %) |
 
-![CNN training curve](reports/figures/cnn_training.png)
+- The CNN halves the missed defects, mostly Scratch (recall 0.67 to 0.87) and Donut (0.74 to
+  0.90), and pays with 2.4 times as many false alarms, mainly `none` read as Edge-Loc (107) or
+  Loc (92). Square-root sampling shows the CNN `none` in 49 % of draws instead of 85 %, which
+  moves its decision boundary towards "defect". For triage, a missed scratch costs more than a
+  false alarm an engineer dismisses in a second, so the CNN is the default model.
+- What remains for both is Loc, Edge-Loc and `none` bleeding into each other, plus Center vs Loc.
+  WM-811K `none` maps often carry small fail clusters, so part of this is label ambiguity.
+- **Calibration.** LightGBM probabilities are well calibrated (expected calibration error 0.004).
+  The CNN is under-confident: mean top-class confidence 0.93 against 0.98 accuracy (ECE 0.047),
+  an expected side effect of label smoothing and resampling. Its confidence is fine for ranking
+  but should be temperature-scaled on validation before it drives a review threshold.
 
-The best epoch was the last one, so a longer schedule (or a GPU) would probably still help; the
-12-epoch schedule was chosen to fit the CPU budget, not tuned.
+Numbers from [`comparison.json`](reports/metrics/comparison.json), produced by
+`scripts/compare_models.py`. That script also re-runs both committed models on the test split
+and confirms they reproduce the stored confusion matrices exactly.
 
-## 5. Engineering decisions and trade-offs
+**Does the lot-grouped split matter here?** I measured it rather than assumed it
+([`split_leakage.json`](reports/metrics/split_leakage.json)): the same LightGBM configuration on a
+random wafer-level split scores 0.880 [0.863, 0.894], with 7,374 of its 7,753 test lots also in
+training, against 0.887 lot-grouped. On WM-811K the leak does not measurably inflate this model.
+I kept the grouped split because it matches deployment (new lots) and costs nothing.
 
-The full list is in [DESIGN.md](DESIGN.md). The ones that changed the outcome most:
+## Design decisions and trade-offs
 
-- **Lot-grouped splits + lot-level bootstrap CI.** The evaluation simulates the real use case, new
-  lots. The leakage experiment above shows that on this dataset a random split would not have
-  flattered the baseline, so this is a check that passed, not a fix. The CI shows how much
-  of the gap between the two models is noise (most of it).
-- **Training/serving split of dependencies.** The CNN is exported to ONNX and served with ONNX
-  Runtime; the API image has no PyTorch. A parity test checks that the exported model gives the
-  same logits as PyTorch.
-- **Validation-selected imbalance handling.** The baseline grid included full class balancing
-  (α = 1); validation rejected it (0.838–0.858 vs 0.889 unweighted). On a fab-realistic 85 % 'none'
-  distribution, balancing buys minority recall at too high a cost in false alarms. The CNN therefore
-  uses a middle ground, √-frequency sampling plus augmentation. That choice was a design decision,
-  not grid-searched, given the CPU budget.
-- **Batch predictions at ingest, on-demand baseline.** The fast CNN pre-labels all 245k wafers
-  (the Docker seed job ingested and labelled 244,841 wafers in 164–195 s across two runs), so analytics are plain SQL;
-  the ~10× slower feature pipeline only runs when someone asks.
-- **Security-minded ingestion.** Restricted unpickler, pinned dataset hash, `.npy` uploads parsed with
-  `allow_pickle=False`, 2 MiB upload cap, enum-validated query parameters.
-- **Portable persistence.** One set of Alembic migrations runs on SQLite (local, tests) and
-  PostgreSQL (compose, CI job).
+Full reasoning in [DESIGN.md](DESIGN.md). The ones that mattered most:
 
-## 6. Limitations
+- **Imbalance handling chosen on validation, not by default.** Full class re-weighting
+  (α = 1) lost on validation (0.838 to 0.858 against 0.889 unweighted): on an 85 % `none`
+  distribution it buys minority recall with too many false alarms. The CNN uses the middle
+  ground, square-root sampling; that choice was not grid-searched, given the CPU budget.
+- **Training and serving dependencies are separate.** The CNN is exported to ONNX; the API image
+  has no PyTorch (ONNX Runtime is 43 MB installed, PyTorch CPU 489 MB) and a parity test checks
+  the exported logits.
+- **Batch predictions at ingest, baseline on demand.** At 0.7 ms per wafer the CNN pre-labels
+  all 245k wafers during ingest, so the analytics are plain SQL. The feature pipeline is 18 times
+  slower and runs only when a user asks for it.
+- **Model versioning.** A model's version is the first 12 hex digits of its weight file's SHA-256,
+  stored with every prediction and returned by `/api/v1/models`. Models are loaded and warmed up
+  at startup, so the first request does not pay for it.
+- **Defensive input handling.** Restricted unpickler for the legacy pickle, pinned dataset hash,
+  `.npy` uploads parsed with `allow_pickle=False`, 2 MiB upload cap, bin codes and grid size
+  validated (422 with a message), enum-typed query parameters.
 
-- **Time is a proxy.** WM-811K has no timestamps; the yield trend orders lots by lot number.
-- **No process context** (tool, chamber, recipe), so the system classifies signatures but cannot
-  attribute them to equipment.
-- **Closed label set.** A novel signature is forced into one of nine classes. Production would add
-  an out-of-distribution / low-confidence route to human review.
-- **Label quality.** WM-811K labels are known to be noisy at class borders (Loc vs Edge-Loc,
-  Center vs Loc); the confusion matrices show exactly these confusions.
-- **Single dataset, single fab.** No claim is made about transfer to other products or die sizes
-  without retraining.
-- **No auth.** The API is open; see DESIGN.md §1 for how it would be secured.
+Latency is the median of 200 single-wafer calls, from decoded grid to probabilities, on a
+13th-gen Intel Core i5-13450HX laptop CPU ([`latency.json`](reports/metrics/latency.json)). The
+Docker seed job ingests and labels all 244,841 wafers in 3 to 6 minutes on that laptop,
+depending on what else is running.
 
-## 7. Screenshots
+## Limitations
 
-All captured from the Docker Compose stack (`docker compose up`) with the full dataset ingested,
-by `scripts/screenshots.py`.
+- **No time axis.** WM-811K has no timestamps; the yield trend orders lots by lot number.
+- **No process context** (tool, chamber, recipe), so signatures cannot be tied to equipment.
+- **Closed label set.** A new signature is forced into one of nine classes. Production needs a
+  low-confidence route to human review, which first needs the calibration fix above.
+- **Label noise** at the Loc / Edge-Loc / `none` borders limits what any model can score.
+- **One dataset.** No claim about transfer to other products or die sizes without retraining.
+- **No authentication.** The API is open; DESIGN.md section 1 describes how it would be secured.
 
-**Fab overview**: KPIs, yield trend along the lot sequence, pattern distribution, yield by pattern, model versions.
-![Overview](docs/screenshots/01_overview.png)
+## Next steps
 
-**Lots filtered by pattern** (`/lots?pattern=Scratch`): server-side pagination, sort and filter.
-![Lots](docs/screenshots/02_lots_filtered.png)
+1. Temperature-scale the CNN on validation and add an "uncertain" route to the API.
+2. Compare the two models at a matched false-alarm rate on `none`, so the comparison is not
+   just two different operating points.
+3. Train the CNN longer or on a GPU. Its validation curve was still rising at epoch 12 (0.886,
+   0.892, 0.893 for epochs 10 to 12); with a one-cycle schedule the last epoch is expected to be
+   best, so whether more epochs help is untested.
 
-**Lot drill-down**: every wafer of the lot as a die-level thumbnail with the CNN label; red outline = disagrees with the expert label.
-![Lot](docs/screenshots/03_lot_drilldown.png)
+## How to run
 
-**Wafer detail**: interactive die-level map (hover shows row / column / bin), expert label, CNN probabilities, on-demand baseline.
-![Wafer](docs/screenshots/04_wafer_detail.png)
+**Requirements:** Docker with Compose v2. For the data and local development:
+[uv](https://docs.astral.sh/uv/) (it installs Python 3.12 if needed), Node 22.22+ or 24.15+,
+and about 6 GB of free disk for the dataset and processed files.
 
-**Upload + live classification** of a new map (synthetic Donut sample).
-![Upload](docs/screenshots/06_upload_classify.png)
-
-**OpenAPI docs** generated from the typed FastAPI endpoints.
-![API docs](docs/screenshots/05_api_docs.png)
-
-## 8. How to run
-
-### Option A: Docker (one command)
-
-Requires Docker with Compose v2. Trained models are committed, so no training is needed.
+**Full stack with all 245k wafers**
 
 ```bash
-python scripts/fetch_dataset.py        # 2.1 GB, SHA-256 verified (skip to start with an empty DB)
-cd backend && uv sync --extra ml && uv run wafermap prepare && cd ..
+python scripts/fetch_dataset.py                 # 2.1 GB download, SHA-256 verified
+cd backend && uv sync --extra ml && uv run wafermap prepare && cd ..   # about 4 min
 docker compose up --build
 ```
 
-- UI: <http://localhost:8080> · API docs: <http://localhost:8000/docs>
-- The `seed` service waits for the API (which applies the migrations), ingests
-  `data/processed/wafers.parquet` into PostgreSQL with CNN predictions, and exits. It does nothing on
-  later restarts (`--if-empty`). Set `SEED_LIMIT_LOTS=500` in `.env` for a quicker partial demo.
-- Without the dataset, the stack still starts with an empty database; the **Classify** page works
-  on uploaded maps (synthetic samples are built in).
+The `seed` service waits for the API (which applies the migrations), loads
+`data/processed/wafers.parquet` into PostgreSQL with CNN predictions, and exits. Later restarts
+skip it. `SEED_LIMIT_LOTS=500` in `.env` gives a quick partial load (see `.env.example`).
 
-### Option B: local, without Docker (SQLite)
-
-Requires Python 3.12 with [uv](https://docs.astral.sh/uv/), and Node 20+.
+**Local, without Docker (SQLite)**
 
 ```bash
-make install            # uv sync --extra ml  +  npm ci
+make install            # uv sync --extra ml, npm ci
 make data               # fetch + prepare
-make ingest             # alembic upgrade head + load ~245k wafers into data/wafermap.db
+make ingest             # migrations + load into data/wafermap.db
 make api                # http://127.0.0.1:8000/docs
-make web                # http://localhost:5173 (proxies /api to :8000)
+make web                # http://localhost:5173, proxies /api to :8000
 ```
 
-On Windows without `make`, run the commands in the `Makefile` directly, e.g.
-`cd backend && uv run wafermap ingest`. The full SQLite ingest took 23 min on the Windows
-development laptop (shared CPU, on-access antivirus scanning of the database file), against under
-3.5 min for the same job into PostgreSQL inside Docker; `--limit-lots 500` gives a quick partial
-database.
+Without GNU make, run the commands from the `Makefile` directly. The full SQLite ingest is
+slow on Windows (23 min, against about 3 min into PostgreSQL); `--limit-lots 500` is quicker.
+`make api` also works without the dataset and starts with an empty database.
 
-### Reproduce the models and every number in this README
+**Reproduce the models and every number above**
 
 ```bash
-make train              # features -> LightGBM baseline -> CNN (CPU) + ONNX export
-cd backend && uv run wafermap report     # summary.md, latency.json, figures
-uv run python ../scripts/split_leakage_experiment.py
+make train              # features, LightGBM grid, CNN (CPU, about 2 h), ONNX export
+make report             # summary.md, latency.json, figures, split-leakage and paired comparison
 ```
 
-All outputs land in `models/` and `reports/`; the README tables are copied from
-`reports/metrics/summary.md`. Seeds are fixed (`WAFERMAP_SEED=42`). The CNN was trained on a laptop
-CPU; PyTorch CPU kernels are not bit-for-bit deterministic across machines, so expect small
-deviations in the last digit.
+Outputs go to `models/` and `reports/`; the tables above are copied from
+`reports/metrics/summary.md` and `comparison.json`. Seeds are fixed (`WAFERMAP_SEED=42`); PyTorch
+CPU kernels are not bit-identical across machines, so a retrained CNN can differ in the last digit.
 
-### Tests and quality gates
+**Tests and checks**
 
 ```bash
-make test               # pytest (backend, SQLite) + vitest (frontend)
+make test               # pytest (SQLite) and vitest
 make lint               # ruff, ruff format --check, mypy --strict, eslint, prettier --check
+make typecheck          # mypy and tsc
 ```
 
-Current results: 55 backend tests, 9 frontend tests, ruff, mypy `--strict`, ESLint, Prettier and
-`tsc` all clean. The captured output and the end-to-end evidence are in
-[docs/verification.md](docs/verification.md). CI (`.github/workflows/ci.yml`) runs the same gates,
-repeats the API tests against PostgreSQL, builds both images and smoke-tests the compose stack. The
-workflow is written but has not been run yet, because the repository has not been pushed.
+CI (`.github/workflows/ci.yml`) runs the same checks, repeats the API tests on PostgreSQL, builds
+both images and smoke-tests the stack. It has not run yet because the repository has not been
+pushed; [docs/verification.md](docs/verification.md) has the local results.
 
-### API at a glance
+## API
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/v1/lots` | paginated lots; filter by pattern / yield / name, sort |
-| GET | `/api/v1/lots/{lot}` | lot detail with all wafers and per-pattern counts |
-| GET | `/api/v1/wafers` | paginated wafers; filter by lot, pattern (true or predicted), yield |
-| GET | `/api/v1/wafers/{id}` · `/map` | wafer detail + predictions · die-level grid |
+| GET | `/api/v1/lots`, `/api/v1/lots/{lot}` | paginated lots (filter by pattern, yield, name), lot detail |
+| GET | `/api/v1/wafers`, `/api/v1/wafers/{id}`, `/api/v1/wafers/{id}/map` | wafers, predictions, die-level grid |
 | POST | `/api/v1/predict` | classify a JSON grid (`?model=cnn\|baseline&save=bool`) |
-| POST | `/api/v1/predict/upload` | classify an uploaded `.csv/.txt/.json/.npy` map |
-| GET | `/api/v1/stats/summary` · `/yield-trend` · `/patterns` | KPIs, yield along lot sequence, pattern distribution |
-| GET | `/api/v1/models` · `/health` | loaded model versions + scores · liveness |
+| POST | `/api/v1/predict/upload` | classify an uploaded `.csv`, `.txt`, `.json` or `.npy` map |
+| GET | `/api/v1/stats/summary`, `/yield-trend`, `/patterns` | KPIs, yield along the lot sequence, pattern counts |
+| GET | `/api/v1/models`, `/api/v1/health` | loaded model versions and scores, liveness |
 
 ```bash
 curl -s -X POST "http://localhost:8000/api/v1/predict/upload?model=cnn" \
      -F "file=@frontend/public/samples/edge-ring.csv"
 ```
 
-## 9. Repository layout
-
-```
-backend/            Python package `wafermap` (pipeline, models, API), Alembic, tests, Dockerfile
-frontend/           React + TypeScript app, vitest tests, nginx config, Dockerfile
-models/             committed model weights + meta (version = SHA-256 prefix of the weights)
-reports/            generated metrics (JSON / Markdown) and figures quoted in this README
-scripts/            dataset fetch, screenshots, synthetic sample maps
-docs/screenshots/   UI screenshots
-```
+More screenshots: [lot list](docs/screenshots/02_lots_filtered.png),
+[lot drill-down](docs/screenshots/03_lot_drilldown.png),
+[wafer detail](docs/screenshots/04_wafer_detail.png),
+[upload and classify](docs/screenshots/06_upload_classify.png),
+[OpenAPI docs](docs/screenshots/05_api_docs.png).
 
 ## Acknowledgements
 
 Dataset: M.-J. Wu, J.-S. R. Jang and J.-L. Chen, "Wafer Map Failure Pattern Recognition and
 Similarity Ranking for Large-Scale Data Sets", *IEEE Trans. Semiconductor Manufacturing* 28(1),
-2015. This is an independent portfolio project, not affiliated with any semiconductor manufacturer.
-
-Code licence: MIT.
+2015. Independent project, not affiliated with any semiconductor manufacturer. Code: MIT licence.
