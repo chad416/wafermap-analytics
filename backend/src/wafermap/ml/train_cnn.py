@@ -8,8 +8,8 @@ Protocol (same as the baseline)
 Imbalance handling
 ------------------
 * **Square-root sampling**: each epoch draws samples with class probability proportional to
-  ``sqrt(n_c)`` instead of ``n_c``. Near-full goes from 0.09 % to ~1.5 % of draws while 'none'
-  drops from 85 % to ~50 %, so minority classes are seen often without the model forgetting what
+  ``sqrt(n_c)`` instead of ``n_c``. Near-full goes from 0.09 % to 1.6 % of draws while 'none'
+  drops from 85 % to 49 %, so minority classes are seen often without the model forgetting what
   a clean wafer looks like (full balancing over-predicts defects on a 'none'-dominated fab).
 * **Label-preserving augmentation**: the 8 dihedral symmetries (rotations by 90 degrees and
   flips). Every WM-811K class is defined by radial / local shape, not by absolute orientation,
@@ -78,7 +78,8 @@ def build_canonical_cache(
 
 def sqrt_sampling_weights(y: np.ndarray) -> npt.NDArray[np.float64]:
     counts = np.bincount(y, minlength=len(CLASSES)).astype(np.float64)
-    per_class = np.sqrt(counts) / counts  # class mass sqrt(n_c), split evenly over its samples
+    # class mass sqrt(n_c), split evenly over its samples (absent classes get no mass)
+    per_class = np.divide(np.sqrt(counts), counts, out=np.zeros_like(counts), where=counts > 0)
     w: npt.NDArray[np.float64] = per_class[y]
     return w / w.sum()
 
