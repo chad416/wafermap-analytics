@@ -187,8 +187,9 @@ depending on what else is running.
 ## How to run
 
 **Requirements:** Docker with Compose v2. For the data and local development:
-[uv](https://docs.astral.sh/uv/) (it installs Python 3.12 if needed), Node 22.22+ or 24.15+,
-and about 6 GB of free disk for the dataset and processed files.
+[uv](https://docs.astral.sh/uv/) (it installs Python 3.12 if needed) and Node 22.22+ or 24.15+.
+The dataset needs 2.2 GB of disk (3.6 GB once the CNN training cache exists), and the `prepare`
+step peaks at about 2.7 GB of RAM.
 
 **Full stack with all 245k wafers**
 
