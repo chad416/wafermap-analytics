@@ -58,8 +58,9 @@ def main() -> None:
     maps["clean"] = m
 
     for name, grid in maps.items():
-        (OUT / f"{name}.csv").write_text("\n".join(",".join(map(str, row)) for row in grid) + "\n",
-                                         newline="\n")
+        (OUT / f"{name}.csv").write_text(
+            "\n".join(",".join(map(str, row)) for row in grid) + "\n", newline="\n"
+        )
         print(f"{name}: {(grid > 0).sum()} dies, {(grid == 2).sum()} fails")
 
 

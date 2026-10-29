@@ -35,7 +35,9 @@ def main() -> None:
 
     # A lot that has several predicted defect types (more interesting than an all-clean lot).
     lots = get(base, "/lots?pattern=Edge-Ring&source=true&page_size=50")["items"]
-    lot = max(lots, key=lambda x: (len([k for k in x["pattern_counts"] if k != "none"]), x["wafer_count"]))
+    lot = max(
+        lots, key=lambda x: (len([k for k in x["pattern_counts"] if k != "none"]), x["wafer_count"])
+    )
     scratch = get(base, "/wafers?pattern=Scratch&source=true&page_size=1")["items"][0]
 
     shots = [
@@ -67,7 +69,9 @@ def main() -> None:
         # Upload flow: classify a synthetic sample through the real UI.
         page = browser.new_page(viewport={"width": 1400, "height": 950})
         page.goto(base + "/classify", wait_until="networkidle")
-        sample = Path(__file__).resolve().parents[1] / "frontend" / "public" / "samples" / "donut.csv"
+        sample = (
+            Path(__file__).resolve().parents[1] / "frontend" / "public" / "samples" / "donut.csv"
+        )
         page.set_input_files("input[type=file]", str(sample))
         page.wait_for_selector("text=Prediction:")
         page.wait_for_timeout(500)

@@ -55,8 +55,8 @@ test-frontend:
 	cd $(FRONTEND) && $(NPM) test
 
 lint:            ## ruff + mypy + eslint + prettier check
-	$(RUN) ruff check .
-	$(RUN) ruff format --check .
+	$(RUN) ruff check . && $(UV) run ruff check --config pyproject.toml ../scripts
+	$(RUN) ruff format --check . && $(UV) run ruff format --check --config pyproject.toml ../scripts
 	$(RUN) mypy
 	cd $(FRONTEND) && $(NPM) run lint && $(NPM) run format:check
 

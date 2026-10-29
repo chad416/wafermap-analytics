@@ -2,7 +2,8 @@
 
 Trains the *selected* baseline configuration (from models/baseline/meta.json) on a random,
 label-stratified 70/15/15 split of the same labelled wafers, with the same early-stopping
-protocol, and compares its test macro-F1 with the lot-grouped result in reports/metrics/baseline.json.
+protocol, and compares its test macro-F1 with the lot-grouped result in
+reports/metrics/baseline.json.
 
 The random-split test set is a different sample, so the comparison is between protocols,
 not a paired test.
@@ -38,8 +39,13 @@ def main() -> None:
     params = {**BASE_PARAMS, "num_leaves": sel["num_leaves"], "seed": 42}
     dtrain = lgb.Dataset(x[tr], y[tr], weight=class_weights(y[tr], sel["alpha"]))
     dval = lgb.Dataset(x[va], y[va], weight=class_weights(y[va], sel["alpha"]), reference=dtrain)
-    booster = lgb.train(params, dtrain, num_boost_round=3000, valid_sets=[dval],
-                        callbacks=[lgb.early_stopping(100, verbose=False)])
+    booster = lgb.train(
+        params,
+        dtrain,
+        num_boost_round=3000,
+        valid_sets=[dval],
+        callbacks=[lgb.early_stopping(100, verbose=False)],
+    )
     pred = np.asarray(booster.predict(x[te], num_iteration=booster.best_iteration)).argmax(1)
     random_metrics = evaluate(y[te], pred, groups=lots[te])
 
@@ -50,7 +56,7 @@ def main() -> None:
             "test_macro_f1": random_metrics["macro_f1"],
             "ci95": random_metrics["macro_f1_ci95_lot_bootstrap"],
             "test_lots_also_in_train": shared_lots,
-            "test_lots": int(len(set(lots[te]))),
+            "test_lots": len(set(lots[te])),
         },
         "lot_grouped_split": {
             "test_macro_f1": grouped["macro_f1"],

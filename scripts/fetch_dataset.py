@@ -41,7 +41,10 @@ def download(dest: Path) -> Path:
     part = target.with_suffix(".pkl.part")
     offset = part.stat().st_size if part.exists() else 0
     req = urllib.request.Request(URL, headers={"Range": f"bytes={offset}-"} if offset else {})
-    with urllib.request.urlopen(req, timeout=60) as resp, part.open("ab" if offset else "wb") as out:
+    with (
+        urllib.request.urlopen(req, timeout=60) as resp,
+        part.open("ab" if offset else "wb") as out,
+    ):
         if offset and resp.status != 206:  # server ignored the range request: start over
             out.seek(0)
             out.truncate()
@@ -63,5 +66,7 @@ def download(dest: Path) -> Path:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--dest", type=Path, default=Path(__file__).resolve().parents[1] / "data" / "raw")
+    ap.add_argument(
+        "--dest", type=Path, default=Path(__file__).resolve().parents[1] / "data" / "raw"
+    )
     download(ap.parse_args().dest)

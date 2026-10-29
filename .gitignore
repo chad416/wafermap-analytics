@@ -2,7 +2,8 @@
 data/raw/
 data/processed/
 data/*.db
-data/*.db-journal
+# SQLite journal / WAL side files
+data/*.db-*
 *.pkl
 
 # Python
