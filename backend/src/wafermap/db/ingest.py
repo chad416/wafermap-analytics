@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, text
 
 from wafermap import wafer
 from wafermap.config import Settings
@@ -98,6 +98,11 @@ def ingest(
                 "  %d / %d wafers (%.0f s)", min(start + CHUNK, n), n, time.perf_counter() - t0
             )
         refresh_lot_stats(s)
+        s.commit()
+        # Refresh planner statistics after the bulk load. Without them SQLite answers the
+        # per-lot pattern counts by scanning every prediction (0.26 s) instead of starting
+        # from the lot index (2 ms); PostgreSQL would otherwise wait for autovacuum.
+        s.execute(text("ANALYZE"))
         s.commit()
     log.info("ingest finished in %.1f s", time.perf_counter() - t0)
     return n

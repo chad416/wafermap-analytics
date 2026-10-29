@@ -114,13 +114,16 @@ correlated.
   depend on the OS that wrote them.)
 - **Batch predictions at ingest, on-demand for the baseline.** The CNN is cheap: 6.0 ms median for a
   single wafer and 194 wafers/s in a batch on a heavily loaded laptop (`reports/metrics/latency.json`).
-  Inside Docker the seed job ingested and labelled all 244,841 wafers in 195 s (about 1,250 wafers/s,
+  Inside Docker the seed job ingested and labelled all 244,841 wafers in 164–195 s (≈1,250–1,500 wafers/s,
   including decode and PostgreSQL inserts). So every wafer gets a stored prediction and the analytics
   queries are plain SQL. The baseline's feature extraction (Radon transform + region properties) is
   roughly 10× slower per wafer (57 ms median), so it runs only on request (`/predict?model=baseline`,
   or "Classify with baseline" in the UI).
 - **Denormalised lot aggregates** (`lots.wafer_count`, `lots.mean_yield`), refreshed by one
   `UPDATE … (SELECT …)` after ingest or upload. A lot list page never scans the wafer table.
+- **Planner statistics after bulk load**: ingest ends with `ANALYZE`. On SQLite, without it the
+  per-lot pattern-count query scanned all 245k predictions through the `(model_name, label)` index
+  (0.26 s); with statistics it starts from the lot index (2 ms), and `/lots` drops from 0.25 s to 5 ms.
 - **Deferred blob column**: `wafers.map_zlib` is `deferred()`, so list endpoints never load it.
   `/wafers/{id}/map` is the only path that decodes a map.
 

@@ -177,7 +177,7 @@ The full list is in [DESIGN.md](DESIGN.md). The ones that changed the outcome mo
   uses a middle ground, √-frequency sampling plus augmentation. That choice was a design decision,
   not grid-searched, given the CPU budget.
 - **Batch predictions at ingest, on-demand baseline.** The fast CNN pre-labels all 245k wafers
-  (the Docker seed job ingested and labelled 244,841 wafers in 195 s), so analytics are plain SQL;
+  (the Docker seed job ingested and labelled 244,841 wafers in 164–195 s across two runs), so analytics are plain SQL;
   the ~10× slower feature pipeline only runs when someone asks.
 - **Security-minded ingestion.** Restricted unpickler, pinned dataset hash, `.npy` uploads parsed with
   `allow_pickle=False`, 2 MiB upload cap, enum-validated query parameters.
@@ -252,7 +252,10 @@ make web                # http://localhost:5173 (proxies /api to :8000)
 ```
 
 On Windows without `make`, run the commands in the `Makefile` directly, e.g.
-`cd backend && uv run wafermap ingest`.
+`cd backend && uv run wafermap ingest`. The full SQLite ingest took 23 min on the Windows
+development laptop (shared CPU, on-access antivirus scanning of the database file), against under
+3.5 min for the same job into PostgreSQL inside Docker; `--limit-lots 500` gives a quick partial
+database.
 
 ### Reproduce the models and every number in this README
 
