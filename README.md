@@ -277,8 +277,11 @@ make test               # pytest (backend, SQLite) + vitest (frontend)
 make lint               # ruff, ruff format --check, mypy --strict, eslint, prettier --check
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same gates, repeats the API tests against PostgreSQL, builds both images and
-smoke-tests the compose stack.
+Current results: 55 backend tests, 9 frontend tests, ruff, mypy `--strict`, ESLint, Prettier and
+`tsc` all clean. The captured output and the end-to-end evidence are in
+[docs/verification.md](docs/verification.md). CI (`.github/workflows/ci.yml`) runs the same gates,
+repeats the API tests against PostgreSQL, builds both images and smoke-tests the compose stack. The
+workflow is written but has not been run yet, because the repository has not been pushed.
 
 ### API at a glance
 
